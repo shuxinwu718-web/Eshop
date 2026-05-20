@@ -86,8 +86,6 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
         if (message == null || !message.getMerchantId().equals(merchantId)) {
             throw new BusinessException("留言不存在");
         }
-        message.setReplyContent(replyContent);
-        message.setReplyTime(LocalDateTime.now());
         message.setIsRead(1);
         messageMapper.updateById(message);
 

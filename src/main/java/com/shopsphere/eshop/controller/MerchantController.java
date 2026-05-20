@@ -17,6 +17,7 @@ import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import com.shopsphere.eshop.vo.MerchantProductVO;
 import com.shopsphere.eshop.vo.MerchantShipmentVO;
+import com.shopsphere.eshop.vo.MerchantNoticeVO;
 import com.shopsphere.eshop.vo.MerchantStatisticsVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -366,6 +367,36 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         notificationService.markAllAsRead(merchantId);
         return Result.success("操作成功");
+    }
+
+    /**
+     * 获取商家通知列表（适配前端"我的通知"页面展示）
+     */
+    @GetMapping("/notices")
+    public Result<Page<MerchantNoticeVO>> getMerchantNotices(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        Page<MerchantNotification> page = notificationService.getNotifications(merchantId, pageNum, pageSize);
+
+        List<MerchantNoticeVO> voList = page.getRecords().stream().map(n -> {
+            MerchantNoticeVO vo = new MerchantNoticeVO();
+            vo.setId(n.getId());
+            vo.setTitle(n.getTitle());
+            vo.setContent(n.getContent());
+            vo.setIsRead(n.getIsRead());
+            vo.setSource("merchant");
+            vo.setType(n.getType());
+            vo.setOrderId(n.getOrderId());
+            vo.setOrderNo(n.getOrderNo());
+            vo.setCreateTime(n.getCreateTime());
+            return vo;
+        }).collect(Collectors.toList());
+
+        Page<MerchantNoticeVO> result = new Page<>(pageNum, pageSize, page.getTotal());
+        result.setRecords(voList);
+        return Result.success(result);
     }
 
     // ==================== 商家资格证书 ====================
