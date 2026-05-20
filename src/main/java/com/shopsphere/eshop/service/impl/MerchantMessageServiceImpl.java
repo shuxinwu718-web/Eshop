@@ -8,7 +8,6 @@ import com.shopsphere.eshop.mapper.MerchantMessageMapper;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.MerchantMessageService;
-import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.NoticeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,7 +21,6 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
 
     private final MerchantMessageMapper messageMapper;
     private final ProductMapper productMapper;
-    private final MerchantNotificationService notificationService;
     private final NoticeService noticeService;
 
     @Override
@@ -42,12 +40,12 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
         messageMapper.insert(message);
 
         // 同时发送通知给商家
-        notificationService.createNotification(
-                product.getMerchantId(),
-                "new_message",
+        noticeService.createAndPublish(
                 "新留言通知",
                 "用户对商品「" + product.getName() + "」留言：" + content,
-                null,
+                3,
+                product.getMerchantId(),
+                "new_message",
                 null
         );
     }
@@ -86,6 +84,8 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
         if (message == null || !message.getMerchantId().equals(merchantId)) {
             throw new BusinessException("留言不存在");
         }
+        message.setReplyContent(replyContent);
+        message.setReplyTime(LocalDateTime.now());
         message.setIsRead(1);
         messageMapper.updateById(message);
 
@@ -94,7 +94,9 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
                 "商家回复了您的留言",
                 replyContent,
                 3,
-                message.getUserId()
+                message.getUserId(),
+                "reply_message",
+                messageId
         );
     }
 

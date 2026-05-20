@@ -5,6 +5,8 @@ import com.shopsphere.eshop.dto.NoticeFormDTO;
 import com.shopsphere.eshop.dto.NoticeQueryDTO;
 import com.shopsphere.eshop.vo.NoticeVO;
 
+import java.util.List;
+
 public interface NoticeService {
 
     Page<NoticeVO> getNoticePage(NoticeQueryDTO dto);
@@ -24,7 +26,13 @@ public interface NoticeService {
     void publishNotice(Long id);
 
     /** 创建并直接发布通知（系统自动生成） */
-    void createAndPublish(String title, String content, Integer type, Long targetUserId);
+    void createAndPublish(String title, String content, Integer type, Long targetUserId, String bizType, Long bizId);
+
+    /** 获取用户未读通知数量 */
+    long getUnreadCount(Long userId);
+
+    /** 获取用户未读通知列表（用于下拉展示） */
+    List<NoticeVO> getUnreadNotices(Long userId, int limit);
 
     // 撤回
     void revokeNotice(Long id);

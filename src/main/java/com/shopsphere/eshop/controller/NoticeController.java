@@ -11,6 +11,8 @@ import com.shopsphere.eshop.vo.NoticeVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -103,5 +105,22 @@ public class NoticeController {
         Long userId = jwtUtil.getUserIdFromToken(token);
         noticeService.readAll(userId);
         return Result.success("全部标记已读");
+    }
+
+    @GetMapping("/unread-count")
+    public Result<Long> getUnreadCount(
+            @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(noticeService.getUnreadCount(userId));
+    }
+
+    @GetMapping("/unread-list")
+    public Result<List<NoticeVO>> getUnreadList(
+            @RequestParam(defaultValue = "5") Integer limit,
+            @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(noticeService.getUnreadNotices(userId, limit));
     }
 }

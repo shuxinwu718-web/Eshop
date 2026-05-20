@@ -24,6 +24,8 @@ public class Notice {
     private LocalDateTime publishTime;
     private Integer status;          // 0-草稿,1-已发布,2-已撤回
     private LocalDateTime revokeTime;
+    private String bizType;          // new_order / order_paid / order_cancelled / new_message
+    private Long bizId;              // 订单ID / 留言ID
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

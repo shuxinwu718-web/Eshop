@@ -13,6 +13,8 @@ public class MerchantMessage {
     private Long userId;
     private Long productId;
     private String content;
+    private String replyContent;
+    private LocalDateTime replyTime;
     private Integer isRead;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

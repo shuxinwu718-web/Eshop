@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -239,7 +241,7 @@ public class NoticeServiceImpl implements NoticeService {
     }
 
     @Override
-    public void createAndPublish(String title, String content, Integer type, Long targetUserId) {
+    public void createAndPublish(String title, String content, Integer type, Long targetUserId, String bizType, Long bizId) {
         Notice notice = new Notice();
         notice.setTitle(title);
         notice.setContent(content);
@@ -250,9 +252,32 @@ public class NoticeServiceImpl implements NoticeService {
         notice.setPublisherId(0L);
         notice.setPublisherName("系统");
         notice.setStatus(1); // 已发布
+        notice.setBizType(bizType);
+        notice.setBizId(bizId);
         notice.setPublishTime(LocalDateTime.now());
         notice.setCreateTime(LocalDateTime.now());
         noticeMapper.insert(notice);
+    }
+
+    @Override
+    public long getUnreadCount(Long userId) {
+        return noticeMapper.countUnreadByUser(userId);
+    }
+
+    @Override
+    public List<NoticeVO> getUnreadNotices(Long userId, int limit) {
+        List<Notice> notices = noticeMapper.selectUnreadByUser(userId, limit);
+        List<NoticeVO> voList = new ArrayList<>();
+        for (Notice notice : notices) {
+            NoticeVO vo = convertToVO(notice);
+            // 查询是否已读（未读列表里理论上都是未读的，但保持和 getMyNotices 一致的模式）
+            LambdaQueryWrapper<NoticeRead> readWrapper = new LambdaQueryWrapper<>();
+            readWrapper.eq(NoticeRead::getNoticeId, notice.getId())
+                    .eq(NoticeRead::getUserId, userId);
+            vo.setIsRead(noticeReadMapper.selectCount(readWrapper) > 0 ? 1 : 0);
+            voList.add(vo);
+        }
+        return voList;
     }
 
     // ========== 私有辅助方法 ==========

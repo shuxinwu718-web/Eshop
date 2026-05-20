@@ -7,7 +7,6 @@ import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.MerchantApplyService;
 import com.shopsphere.eshop.service.MerchantMessageService;
-import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.OrderShipmentService;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
@@ -17,7 +16,6 @@ import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import com.shopsphere.eshop.vo.MerchantProductVO;
 import com.shopsphere.eshop.vo.MerchantShipmentVO;
-import com.shopsphere.eshop.vo.MerchantNoticeVO;
 import com.shopsphere.eshop.vo.MerchantStatisticsVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +47,6 @@ public class MerchantController {
     private final TokenUtils tokenUtils;
 
     private final MerchantApplyService merchantApplyService;
-    private final MerchantNotificationService notificationService;
     private final MerchantMessageService messageService;
 
 
@@ -335,68 +332,6 @@ public class MerchantController {
         }
         messageService.replyToMessage(merchantId, id, replyContent);
         return Result.success("回复成功");
-    }
-
-    // ==================== 消息通知 ====================
-
-    @GetMapping("/notifications")
-    public Result<Page<MerchantNotification>> getNotifications(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
-        return Result.success(notificationService.getNotifications(merchantId, pageNum, pageSize));
-    }
-
-    @GetMapping("/notifications/unread-count")
-    public Result<Long> getUnreadCount(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
-        return Result.success(notificationService.getUnreadCount(merchantId));
-    }
-
-    @PutMapping("/notifications/{id}/read")
-    public Result<?> markAsRead(@PathVariable Long id,
-                                @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
-        notificationService.markAsRead(merchantId, id);
-        return Result.success("操作成功");
-    }
-
-    @PutMapping("/notifications/read-all")
-    public Result<?> markAllAsRead(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
-        notificationService.markAllAsRead(merchantId);
-        return Result.success("操作成功");
-    }
-
-    /**
-     * 获取商家通知列表（适配前端"我的通知"页面展示）
-     */
-    @GetMapping("/notices")
-    public Result<Page<MerchantNoticeVO>> getMerchantNotices(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
-        Page<MerchantNotification> page = notificationService.getNotifications(merchantId, pageNum, pageSize);
-
-        List<MerchantNoticeVO> voList = page.getRecords().stream().map(n -> {
-            MerchantNoticeVO vo = new MerchantNoticeVO();
-            vo.setId(n.getId());
-            vo.setTitle(n.getTitle());
-            vo.setContent(n.getContent());
-            vo.setIsRead(n.getIsRead());
-            vo.setSource("merchant");
-            vo.setType(n.getType());
-            vo.setOrderId(n.getOrderId());
-            vo.setOrderNo(n.getOrderNo());
-            vo.setCreateTime(n.getCreateTime());
-            return vo;
-        }).collect(Collectors.toList());
-
-        Page<MerchantNoticeVO> result = new Page<>(pageNum, pageSize, page.getTotal());
-        result.setRecords(voList);
-        return Result.success(result);
     }
 
     // ==================== 商家资格证书 ====================

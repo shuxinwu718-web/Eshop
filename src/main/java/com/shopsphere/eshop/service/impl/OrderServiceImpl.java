@@ -8,7 +8,6 @@ import com.shopsphere.eshop.dto.OrderPageQueryDTO;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
-import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.vo.OrderVO;
@@ -37,7 +36,6 @@ public class OrderServiceImpl implements OrderService {
 
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
-    private final MerchantNotificationService notificationService;
     private final NoticeService noticeService;
 
     @Override
@@ -191,13 +189,13 @@ public class OrderServiceImpl implements OrderService {
 
         // 7. 发送新订单通知给商家
         for (Long sellerId : itemsBySeller.keySet()) {
-            notificationService.createNotification(
-                    sellerId,
-                    "new_order",
+            noticeService.createAndPublish(
                     "新订单通知",
                     "您有新的订单，订单号：" + orderNo,
-                    order.getId(),
-                    orderNo
+                    3,
+                    sellerId,
+                    "new_order",
+                    order.getId()
             );
         }
 
@@ -237,13 +235,13 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         for (Long merchantId : merchantIds) {
-            notificationService.createNotification(
-                    merchantId,
-                    "order_cancelled",
+            noticeService.createAndPublish(
                     "订单取消通知",
                     "订单 " + order.getOrderNo() + " 已被用户取消",
-                    orderId,
-                    order.getOrderNo()
+                    3,
+                    merchantId,
+                    "order_cancelled",
+                    orderId
             );
         }
 
@@ -252,7 +250,9 @@ public class OrderServiceImpl implements OrderService {
                 "订单已取消",
                 "您的订单 " + order.getOrderNo() + " 已取消",
                 3,
-                userId
+                userId,
+                "order_cancelled",
+                orderId
         );
     }
 
@@ -303,13 +303,13 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         for (Long merchantId : paidMerchantIds) {
-            notificationService.createNotification(
-                    merchantId,
-                    "order_paid",
+            noticeService.createAndPublish(
                     "订单付款通知",
                     "订单 " + order.getOrderNo() + " 已付款，请尽快发货",
-                    orderId,
-                    order.getOrderNo()
+                    3,
+                    merchantId,
+                    "order_paid",
+                    orderId
             );
         }
 
@@ -318,7 +318,9 @@ public class OrderServiceImpl implements OrderService {
                 "订单支付成功",
                 "您的订单 " + order.getOrderNo() + " 已支付成功，请等待发货",
                 3,
-                userId
+                userId,
+                "order_paid",
+                orderId
         );
 
         log.info("订单支付成功 orderId={}, orderNo={}, userId={}, amount={}",
