@@ -55,14 +55,14 @@ public class ProductServiceImpl implements ProductService {
     public void updateProduct(ProductSaveDTO dto) {
         Product product = productMapper.selectById(dto.getId());
         if (product == null) {
-            throw new RuntimeException("商品不存在");
+            throw new BusinessException("商品不存在");
         }
         // 重名检查
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getName, dto.getName())
                 .ne(Product::getId, dto.getId());
         if (productMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("商品名称已存在");
+            throw new BusinessException("商品名称已存在");
         }
         BeanUtils.copyProperties(dto, product);
         product.setNamePinyin(PinyinUtils.getPinyin(dto.getName())); // 更新拼音（全拼）
@@ -88,7 +88,7 @@ public class ProductServiceImpl implements ProductService {
     public void changeStatus(Long id, Integer status) {
         Product product = productMapper.selectById(id);
         if (product == null) {
-            throw new RuntimeException("商品不存在");
+            throw new BusinessException("商品不存在");
         }
         product.setStatus(status);
         productMapper.updateById(product);

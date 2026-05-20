@@ -11,6 +11,7 @@ import com.shopsphere.eshop.dto.CommentSaveDTO;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.entity.ProductComment;
 import com.shopsphere.eshop.mapper.ProductCommentMapper;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.ProductCommentService;
 import com.shopsphere.eshop.vo.ProductCommentVO;
@@ -36,7 +37,7 @@ public class ProductCommentServiceImpl implements ProductCommentService {
     public void addComment(CommentSaveDTO dto, Long userId) {
         Product product = productMapper.selectById(dto.getProductId());
         if (product == null) {
-            throw new RuntimeException("商品不存在");
+            throw new BusinessException("商品不存在");
         }
         ProductComment comment = new ProductComment();
         comment.setProductId(dto.getProductId());
@@ -49,7 +50,7 @@ public class ProductCommentServiceImpl implements ProductCommentService {
                 comment.setImages(imagesJson);
             } catch (JsonProcessingException e) {
                 log.error("图片列表转JSON失败", e);
-                throw new RuntimeException("图片格式错误");
+                throw new BusinessException("图片格式错误");
             }
         }
         comment.setStatus(1);
@@ -62,7 +63,7 @@ public class ProductCommentServiceImpl implements ProductCommentService {
     public void replyComment(CommentReplyDTO dto, Long userId) {
         ProductComment parent = commentMapper.selectById(dto.getParentId());
         if (parent == null || parent.getDeleted() != 0) {
-            throw new RuntimeException("原评论不存在或已删除");
+            throw new BusinessException("原评论不存在或已删除");
         }
         ProductComment reply = new ProductComment();
         reply.setProductId(parent.getProductId());
@@ -79,10 +80,10 @@ public class ProductCommentServiceImpl implements ProductCommentService {
     public void deleteComment(Long commentId, Long userId, boolean isAdmin) {
         ProductComment comment = commentMapper.selectById(commentId);
         if (comment == null) {
-            throw new RuntimeException("评论不存在");
+            throw new BusinessException("评论不存在");
         }
         if (!isAdmin && !comment.getUserId().equals(userId)) {
-            throw new RuntimeException("无权删除该评论");
+            throw new BusinessException("无权删除该评论");
         }
         commentMapper.deleteById(commentId);
     }
@@ -92,7 +93,7 @@ public class ProductCommentServiceImpl implements ProductCommentService {
     public void updateCommentStatus(Long commentId, Integer status) {
         ProductComment comment = commentMapper.selectById(commentId);
         if (comment == null) {
-            throw new RuntimeException("评论不存在");
+            throw new BusinessException("评论不存在");
         }
         comment.setStatus(status);
         commentMapper.updateById(comment);

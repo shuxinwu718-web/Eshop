@@ -7,6 +7,7 @@ import com.shopsphere.eshop.dto.RegisterRequest;
 import com.shopsphere.eshop.dto.UserPageQueryDTO;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.mapper.UserMapper;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.service.UserService;
 import com.shopsphere.eshop.utils.JwtUtil;
@@ -48,7 +49,7 @@ public class UserServiceImpl implements UserService {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, request.getUsername());
         if (userMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("用户名已存在");
+            throw new BusinessException("用户名已存在");
         }
 
         User user = new User();
@@ -90,13 +91,13 @@ public class UserServiceImpl implements UserService {
         wrapper.eq(User::getUsername, request.getUsername());
         User user = userMapper.selectOne(wrapper);
         if (user == null) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException("用户名或密码错误");
         }
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException("用户名或密码错误");
         }
         if (user.getStatus() == 1) {
-            throw new RuntimeException("账号已被冻结，请联系管理员");
+            throw new BusinessException("账号已被冻结，请联系管理员");
         }
         String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
         Map<String, String> result = new HashMap<>();
@@ -109,7 +110,7 @@ public class UserServiceImpl implements UserService {
     public UserVO getUserInfo(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException("用户不存在");
         }
         UserVO vo = new UserVO();
         BeanUtils.copyProperties(user, vo);
@@ -176,10 +177,10 @@ public class UserServiceImpl implements UserService {
     public void freezeUser(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException("用户不存在");
         }
         if (user.getDeleted() == 1) {
-            throw new RuntimeException("已注销的用户无法冻结");
+            throw new BusinessException("已注销的用户无法冻结");
         }
         user.setStatus(1);
         userMapper.updateById(user);
@@ -190,7 +191,7 @@ public class UserServiceImpl implements UserService {
     public void unfreezeUser(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException("用户不存在");
         }
         user.setStatus(0);
         userMapper.updateById(user);
@@ -222,7 +223,7 @@ public class UserServiceImpl implements UserService {
     public void deactivateAccount(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException("用户不存在");
         }
         // 检查是否有未完成订单（可选）
         // 可以查询 order 表中 user_id = userId 且 order_status in (0,1) 是否有记录，若有则提示先处理订单

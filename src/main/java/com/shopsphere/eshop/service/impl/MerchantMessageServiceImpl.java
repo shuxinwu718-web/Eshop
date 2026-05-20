@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.entity.MerchantMessage;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.MerchantMessageMapper;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.service.MerchantNotificationService;
@@ -25,7 +26,7 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
     public void sendMessage(Long userId, Long productId, String content) {
         Product product = productMapper.selectById(productId);
         if (product == null) {
-            throw new RuntimeException("商品不存在");
+            throw new BusinessException("商品不存在");
         }
 
         MerchantMessage message = new MerchantMessage();

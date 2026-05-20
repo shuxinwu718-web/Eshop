@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shopsphere.eshop.entity.Cart;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.CartMapper;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.CartService;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,7 @@ public class CartServiceImpl implements CartService {
         wrapper.eq(Cart::getUserId, userId).eq(Cart::getProductId, productId);
         Cart cart = cartMapper.selectOne(wrapper);
         if (cart == null) {
-            throw new RuntimeException("购物车项不存在");
+            throw new BusinessException("购物车项不存在");
         }
         if (quantity != null) cart.setQuantity(quantity);
         if (selected != null) cart.setSelected(selected);

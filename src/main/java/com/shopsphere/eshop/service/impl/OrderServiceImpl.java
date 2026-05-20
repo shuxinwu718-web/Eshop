@@ -12,6 +12,7 @@ import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.vo.OrderVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderServiceImpl implements OrderService {
 
     private final OrderMapper orderMapper;
@@ -41,7 +43,7 @@ public class OrderServiceImpl implements OrderService {
     public Order createOrder(OrderCreateDTO dto, Long userId) {
         List<OrderCreateDTO.OrderItemDTO> items = dto.getItems();
         if (items == null || items.isEmpty()) {
-            throw new RuntimeException("订单不能为空");
+            throw new BusinessException("订单不能为空");
         }
 
         // 1. 获取收货地址
@@ -51,10 +53,10 @@ public class OrderServiceImpl implements OrderService {
         if (dto.getAddressId() != null) {
             Address address = addressMapper.selectById(dto.getAddressId());
             if (address == null) {
-                throw new RuntimeException("地址不存在");
+                throw new BusinessException("地址不存在");
             }
             if (!address.getUserId().equals(userId)) {
-                throw new RuntimeException("无权使用该地址");
+                throw new BusinessException("无权使用该地址");
             }
             receiverName = address.getReceiverName();
             receiverPhone = address.getReceiverPhone();
@@ -67,7 +69,7 @@ public class OrderServiceImpl implements OrderService {
             receiverPhone = dto.getReceiverPhone();
             receiverAddress = dto.getReceiverAddress();
             if (receiverName == null || receiverPhone == null || receiverAddress == null) {
-                throw new RuntimeException("请填写收货信息或选择地址");
+                throw new BusinessException("请填写收货信息或选择地址");
             }
         }
 
@@ -78,10 +80,10 @@ public class OrderServiceImpl implements OrderService {
         for (OrderCreateDTO.OrderItemDTO itemDTO : items) {
             Product product = productMapper.selectById(itemDTO.getProductId());
             if (product == null) {
-                throw new RuntimeException("商品不存在: " + itemDTO.getProductId());
+                throw new BusinessException("商品不存在: " + itemDTO.getProductId());
             }
             if (product.getStock() < itemDTO.getQuantity()) {
-                throw new RuntimeException("商品库存不足: " + product.getName());
+                throw new BusinessException("商品库存不足: " + product.getName());
             }
             product.setStock(product.getStock() - itemDTO.getQuantity());
             productMapper.updateById(product);
@@ -197,6 +199,7 @@ public class OrderServiceImpl implements OrderService {
             );
         }
 
+        log.info("订单创建成功 orderNo={}, userId={}, amount={}, payAmount={}", orderNo, userId, totalAmount, payAmount);
         return order;
     }
 
@@ -205,14 +208,16 @@ public class OrderServiceImpl implements OrderService {
     public void cancelOrder(Long orderId, Long userId) {
         Order order = orderMapper.selectById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
-            throw new RuntimeException("订单不存在");
+            throw new BusinessException("订单不存在");
         }
         if (order.getOrderStatus() != 0) {
-            throw new RuntimeException("订单已支付，无法取消");
+            throw new BusinessException("订单已支付，无法取消");
         }
         order.setOrderStatus(4);
         order.setCancelTime(LocalDateTime.now());
         orderMapper.updateById(order);
+
+        log.info("订单取消成功 orderId={}, userId={}", orderId, userId);
 
         // 恢复库存
         LambdaQueryWrapper<OrderItem> wrapper = new LambdaQueryWrapper<>();
@@ -248,14 +253,14 @@ public class OrderServiceImpl implements OrderService {
         // 1. 查询订单（用于校验用户归属和获取 payAmount）
         Order order = orderMapper.selectById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
-            throw new RuntimeException("订单不存在");
+            throw new BusinessException("订单不存在");
         }
         if (order.getOrderStatus() != 0) {
-            throw new RuntimeException("订单状态异常，无法支付");
+            throw new BusinessException("订单状态异常，无法支付");
         }
         // 2. 校验支付金额（前端传来的实际支付金额必须等于订单的实付金额）
         if (actualAmount == null || actualAmount.compareTo(order.getPayAmount()) != 0) {
-            throw new RuntimeException("支付金额与订单金额不符");
+            throw new BusinessException("支付金额与订单金额不符");
         }
 
         // 3. 使用条件更新：仅当订单状态为 0（待付款）时才更新为已支付（防止重复支付）
@@ -271,7 +276,7 @@ public class OrderServiceImpl implements OrderService {
                 .eq(Order::getOrderStatus, 0);   // 只有待付款才能更新
         int rows = orderMapper.update(updateOrder, wrapper);
         if (rows == 0) {
-            throw new RuntimeException("支付失败，订单状态已变更，请刷新后重试");
+            throw new BusinessException("支付失败，订单状态已变更，请刷新后重试");
         }
 
         // 4. 支付成功，增加各商品销量，并通知商家
@@ -297,6 +302,9 @@ public class OrderServiceImpl implements OrderService {
                     order.getOrderNo()
             );
         }
+
+        log.info("订单支付成功 orderId={}, orderNo={}, userId={}, amount={}",
+                orderId, order.getOrderNo(), userId, actualAmount);
     }
 
 
@@ -326,7 +334,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO getOrderDetail(Long orderId, Long userId) {
         Order order = orderMapper.selectById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
-            throw new RuntimeException("订单不存在");
+            throw new BusinessException("订单不存在");
         }
         return convertToOrderVO(order);
     }

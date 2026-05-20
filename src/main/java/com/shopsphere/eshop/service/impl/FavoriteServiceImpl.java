@@ -6,6 +6,7 @@ import com.shopsphere.eshop.entity.Favorite;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.FavoriteMapper;
 import com.shopsphere.eshop.mapper.ProductMapper;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.service.FavoriteService;
 import com.shopsphere.eshop.vo.FavoriteProductVO;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +29,7 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Transactional
     public void addFavorite(Long userId, Long productId) {
         if (favoriteMapper.existsByUserIdAndProductId(userId, productId)) {
-            throw new RuntimeException("已收藏该商品");
+            throw new BusinessException("已收藏该商品");
         }
         Favorite favorite = new Favorite();
         favorite.setUserId(userId);
