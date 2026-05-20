@@ -69,6 +69,11 @@ public class ProductController {
         return Result.success(productImageService.getImagesByProductId(productId));
     }
 
+    @GetMapping("/hot")
+    public Result<?> getHotProducts(@RequestParam(defaultValue = "10") Integer limit) {
+        return Result.success(productService.getHotProducts(limit));
+    }
+
     @PostMapping("/batch-update-pinyin")
     public Result<?> batchUpdatePinyin() {
         productService.batchUpdatePinyin();

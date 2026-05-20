@@ -4,6 +4,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.dto.ProductPageQueryDTO;
 import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.entity.Product;
+import com.shopsphere.eshop.vo.HotProductVO;
+import com.shopsphere.eshop.vo.ProductSalesVO;
+
+import java.util.List;
 
 public interface ProductService {
     void addProduct(ProductSaveDTO dto);
@@ -13,4 +17,6 @@ public interface ProductService {
     Page<Product> pageQuery(ProductPageQueryDTO dto);
     Product getProductById(Long id);
     void batchUpdatePinyin();
+    List<HotProductVO> getHotProducts(int limit);
+    List<ProductSalesVO> getProductSalesByMerchant(Long merchantId);
 }

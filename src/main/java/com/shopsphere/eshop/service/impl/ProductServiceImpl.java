@@ -13,6 +13,8 @@ import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
 import com.shopsphere.eshop.utils.PinyinUtils;
+import com.shopsphere.eshop.vo.HotProductVO;
+import com.shopsphere.eshop.vo.ProductSalesVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -132,6 +134,16 @@ public class ProductServiceImpl implements ProductService {
             product.setNamePinyin(pinyin);
             productMapper.updateById(product);
         }
+    }
+
+    @Override
+    public List<HotProductVO> getHotProducts(int limit) {
+        return productMapper.selectHotProducts(limit);
+    }
+
+    @Override
+    public List<ProductSalesVO> getProductSalesByMerchant(Long merchantId) {
+        return productMapper.selectProductSalesByMerchant(merchantId);
     }
 
     /**

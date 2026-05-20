@@ -285,6 +285,15 @@ public class MerchantController {
         return Result.success(vo);
     }
 
+    /**
+     * 商家各商品销量统计
+     */
+    @GetMapping("/product-sales")
+    public Result<?> getProductSales(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        return Result.success(productService.getProductSalesByMerchant(merchantId));
+    }
+
     // ==================== 商家资格证书 ====================
 
 

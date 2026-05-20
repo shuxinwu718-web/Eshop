@@ -245,6 +245,18 @@ public class OrderServiceImpl implements OrderService {
         if (rows == 0) {
             throw new RuntimeException("支付失败，订单状态已变更，请刷新后重试");
         }
+
+        // 4. 支付成功，增加各商品销量
+        LambdaQueryWrapper<OrderItem> itemQuery = new LambdaQueryWrapper<>();
+        itemQuery.eq(OrderItem::getOrderId, orderId);
+        List<OrderItem> items = orderItemMapper.selectList(itemQuery);
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            if (product != null) {
+                product.setSales(product.getSales() == null ? item.getQuantity() : product.getSales() + item.getQuantity());
+                productMapper.updateById(product);
+            }
+        }
     }
 
 
