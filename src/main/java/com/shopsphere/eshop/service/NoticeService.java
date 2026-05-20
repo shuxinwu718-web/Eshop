@@ -23,6 +23,9 @@ public interface NoticeService {
     // 发布
     void publishNotice(Long id);
 
+    /** 创建并直接发布通知（系统自动生成） */
+    void createAndPublish(String title, String content, Integer type, Long targetUserId);
+
     // 撤回
     void revokeNotice(Long id);
 

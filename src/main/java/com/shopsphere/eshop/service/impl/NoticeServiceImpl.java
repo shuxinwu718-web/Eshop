@@ -238,6 +238,23 @@ public class NoticeServiceImpl implements NoticeService {
         }
     }
 
+    @Override
+    public void createAndPublish(String title, String content, Integer type, Long targetUserId) {
+        Notice notice = new Notice();
+        notice.setTitle(title);
+        notice.setContent(content);
+        notice.setType(type != null ? type : 3); // 默认3=订单通知
+        notice.setLevel(0); // 普通
+        notice.setTargetType(2); // 指定用户
+        notice.setTargetUserIds(String.valueOf(targetUserId));
+        notice.setPublisherId(0L);
+        notice.setPublisherName("系统");
+        notice.setStatus(1); // 已发布
+        notice.setPublishTime(LocalDateTime.now());
+        notice.setCreateTime(LocalDateTime.now());
+        noticeMapper.insert(notice);
+    }
+
     // ========== 私有辅助方法 ==========
 
     private NoticeVO convertToVO(Notice notice) {

@@ -12,4 +12,10 @@ public interface MerchantMessageService {
     long getUnreadCount(Long merchantId);
 
     void markAsRead(Long merchantId, Long messageId);
+
+    /** 商家回复留言 */
+    void replyToMessage(Long merchantId, Long messageId, String replyContent);
+
+    /** 用户查看自己的留言 */
+    Page<MerchantMessage> getUserMessages(Long userId, int pageNum, int pageSize);
 }

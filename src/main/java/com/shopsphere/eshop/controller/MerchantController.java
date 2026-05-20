@@ -323,6 +323,19 @@ public class MerchantController {
         return Result.success("操作成功");
     }
 
+    @PutMapping("/messages/{id}/reply")
+    public Result<?> replyToMessage(@PathVariable Long id,
+                                    @RequestBody Map<String, String> body,
+                                    @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        String replyContent = body.get("replyContent");
+        if (replyContent == null || replyContent.isBlank()) {
+            return Result.error("请输入回复内容");
+        }
+        messageService.replyToMessage(merchantId, id, replyContent);
+        return Result.success("回复成功");
+    }
+
     // ==================== 消息通知 ====================
 
     @GetMapping("/notifications")

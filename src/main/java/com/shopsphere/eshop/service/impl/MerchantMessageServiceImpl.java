@@ -9,9 +9,12 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.service.MerchantNotificationService;
+import com.shopsphere.eshop.service.NoticeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +23,7 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
     private final MerchantMessageMapper messageMapper;
     private final ProductMapper productMapper;
     private final MerchantNotificationService notificationService;
+    private final NoticeService noticeService;
 
     @Override
     @Transactional
@@ -73,5 +77,35 @@ public class MerchantMessageServiceImpl implements MerchantMessageService {
             message.setIsRead(1);
             messageMapper.updateById(message);
         }
+    }
+
+    @Override
+    @Transactional
+    public void replyToMessage(Long merchantId, Long messageId, String replyContent) {
+        MerchantMessage message = messageMapper.selectById(messageId);
+        if (message == null || !message.getMerchantId().equals(merchantId)) {
+            throw new BusinessException("留言不存在");
+        }
+        message.setReplyContent(replyContent);
+        message.setReplyTime(LocalDateTime.now());
+        message.setIsRead(1);
+        messageMapper.updateById(message);
+
+        // 创建系统通知给用户
+        noticeService.createAndPublish(
+                "商家回复了您的留言",
+                replyContent,
+                3,
+                message.getUserId()
+        );
+    }
+
+    @Override
+    public Page<MerchantMessage> getUserMessages(Long userId, int pageNum, int pageSize) {
+        Page<MerchantMessage> page = new Page<>(pageNum, pageSize);
+        LambdaQueryWrapper<MerchantMessage> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantMessage::getUserId, userId);
+        wrapper.orderByDesc(MerchantMessage::getCreateTime);
+        return messageMapper.selectPage(page, wrapper);
     }
 }

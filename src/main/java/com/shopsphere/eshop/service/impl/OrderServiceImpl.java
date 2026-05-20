@@ -9,6 +9,7 @@ import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.MerchantNotificationService;
+import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.vo.OrderVO;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class OrderServiceImpl implements OrderService {
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
     private final MerchantNotificationService notificationService;
+    private final NoticeService noticeService;
 
     @Override
     @Transactional
@@ -244,6 +246,14 @@ public class OrderServiceImpl implements OrderService {
                     order.getOrderNo()
             );
         }
+
+        // 创建系统通知给用户
+        noticeService.createAndPublish(
+                "订单已取消",
+                "您的订单 " + order.getOrderNo() + " 已取消",
+                3,
+                userId
+        );
     }
 
 
@@ -302,6 +312,14 @@ public class OrderServiceImpl implements OrderService {
                     order.getOrderNo()
             );
         }
+
+        // 创建系统通知给用户
+        noticeService.createAndPublish(
+                "订单支付成功",
+                "您的订单 " + order.getOrderNo() + " 已支付成功，请等待发货",
+                3,
+                userId
+        );
 
         log.info("订单支付成功 orderId={}, orderNo={}, userId={}, amount={}",
                 orderId, order.getOrderNo(), userId, actualAmount);

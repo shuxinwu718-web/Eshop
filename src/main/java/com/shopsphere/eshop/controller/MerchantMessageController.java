@@ -1,6 +1,8 @@
 package com.shopsphere.eshop.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.entity.MerchantMessage;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
@@ -33,5 +35,15 @@ public class MerchantMessageController {
 
         messageService.sendMessage(userId, productId, content);
         return Result.success("留言发送成功");
+    }
+
+    @GetMapping("/my")
+    public Result<Page<MerchantMessage>> getMyMessages(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(messageService.getUserMessages(userId, pageNum, pageSize));
     }
 }
