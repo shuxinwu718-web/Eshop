@@ -6,6 +6,7 @@ import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.MerchantApplyService;
+import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.OrderShipmentService;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
@@ -46,6 +47,7 @@ public class MerchantController {
     private final TokenUtils tokenUtils;
 
     private final MerchantApplyService merchantApplyService;
+    private final MerchantNotificationService notificationService;
 
 
     private Long getMerchantId(String authHeader) {
@@ -292,6 +294,38 @@ public class MerchantController {
     public Result<?> getProductSales(@RequestHeader("Authorization") String authHeader) {
         Long merchantId = getMerchantId(authHeader);
         return Result.success(productService.getProductSalesByMerchant(merchantId));
+    }
+
+    // ==================== 消息通知 ====================
+
+    @GetMapping("/notifications")
+    public Result<Page<MerchantNotification>> getNotifications(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        return Result.success(notificationService.getNotifications(merchantId, pageNum, pageSize));
+    }
+
+    @GetMapping("/notifications/unread-count")
+    public Result<Long> getUnreadCount(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        return Result.success(notificationService.getUnreadCount(merchantId));
+    }
+
+    @PutMapping("/notifications/{id}/read")
+    public Result<?> markAsRead(@PathVariable Long id,
+                                @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        notificationService.markAsRead(merchantId, id);
+        return Result.success("操作成功");
+    }
+
+    @PutMapping("/notifications/read-all")
+    public Result<?> markAllAsRead(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        notificationService.markAllAsRead(merchantId);
+        return Result.success("操作成功");
     }
 
     // ==================== 商家资格证书 ====================

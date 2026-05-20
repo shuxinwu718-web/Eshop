@@ -8,6 +8,7 @@ import com.shopsphere.eshop.dto.OrderPageQueryDTO;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
+import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.vo.OrderVO;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class OrderServiceImpl implements OrderService {
 
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final MerchantNotificationService notificationService;
 
     @Override
     @Transactional
@@ -183,6 +185,18 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
+        // 7. 发送新订单通知给商家
+        for (Long sellerId : itemsBySeller.keySet()) {
+            notificationService.createNotification(
+                    sellerId,
+                    "new_order",
+                    "新订单通知",
+                    "您有新的订单，订单号：" + orderNo,
+                    order.getId(),
+                    orderNo
+            );
+        }
+
         return order;
     }
 
@@ -204,12 +218,26 @@ public class OrderServiceImpl implements OrderService {
         LambdaQueryWrapper<OrderItem> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(OrderItem::getOrderId, orderId);
         List<OrderItem> items = orderItemMapper.selectList(wrapper);
+
+        // 通知商家
+        Set<Long> merchantIds = new HashSet<>();
         for (OrderItem item : items) {
             Product product = productMapper.selectById(item.getProductId());
             if (product != null) {
                 product.setStock(product.getStock() + item.getQuantity());
                 productMapper.updateById(product);
+                merchantIds.add(product.getMerchantId());
             }
+        }
+        for (Long merchantId : merchantIds) {
+            notificationService.createNotification(
+                    merchantId,
+                    "order_cancelled",
+                    "订单取消通知",
+                    "订单 " + order.getOrderNo() + " 已被用户取消",
+                    orderId,
+                    order.getOrderNo()
+            );
         }
     }
 
@@ -246,16 +274,28 @@ public class OrderServiceImpl implements OrderService {
             throw new RuntimeException("支付失败，订单状态已变更，请刷新后重试");
         }
 
-        // 4. 支付成功，增加各商品销量
+        // 4. 支付成功，增加各商品销量，并通知商家
         LambdaQueryWrapper<OrderItem> itemQuery = new LambdaQueryWrapper<>();
         itemQuery.eq(OrderItem::getOrderId, orderId);
         List<OrderItem> items = orderItemMapper.selectList(itemQuery);
+        Set<Long> paidMerchantIds = new HashSet<>();
         for (OrderItem item : items) {
             Product product = productMapper.selectById(item.getProductId());
             if (product != null) {
                 product.setSales(product.getSales() == null ? item.getQuantity() : product.getSales() + item.getQuantity());
                 productMapper.updateById(product);
+                paidMerchantIds.add(product.getMerchantId());
             }
+        }
+        for (Long merchantId : paidMerchantIds) {
+            notificationService.createNotification(
+                    merchantId,
+                    "order_paid",
+                    "订单付款通知",
+                    "订单 " + order.getOrderNo() + " 已付款，请尽快发货",
+                    orderId,
+                    order.getOrderNo()
+            );
         }
     }
 
