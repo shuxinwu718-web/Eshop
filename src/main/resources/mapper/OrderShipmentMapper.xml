@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shopsphere.eshop.mapper.OrderShipmentMapper">
+
+    <resultMap id="MerchantShipmentVOResultMap" type="com.shopsphere.eshop.vo.MerchantShipmentVO">
+        <id property="id" column="id"/>
+        <result property="orderId" column="order_id"/>
+        <result property="orderNo" column="order_no"/>
+        <result property="orderCreateTime" column="order_create_time"/>
+        <result property="payStatus" column="pay_status"/>
+        <result property="payAmount" column="pay_amount"/>
+        <result property="deliveryStatus" column="delivery_status"/>
+        <result property="shippingName" column="shipping_name"/>
+        <result property="shippingNo" column="shipping_no"/>
+        <result property="shippingTime" column="shipping_time"/>
+        <result property="totalAmount" column="shipment_amount"/>
+        <!-- 买家信息 -->
+        <result property="userId" column="user_id"/>
+        <result property="userNickname" column="username"/>
+        <result property="userMobile" column="phone"/>
+        <!-- 收货信息 -->
+        <result property="receiverName" column="receiver_name"/>
+        <result property="receiverPhone" column="receiver_phone"/>
+        <result property="receiverAddress" column="receiver_address"/>
+        <!-- 商品明细列表 -->
+        <collection property="items" ofType="com.shopsphere.eshop.vo.MerchantShipmentVO$ItemVO">
+            <id property="itemId" column="item_id"/>
+            <result property="productId" column="product_id"/>
+            <result property="productName" column="product_name"/>
+            <result property="productImage" column="product_image"/>
+            <result property="price" column="price"/>
+            <result property="quantity" column="quantity"/>
+            <result property="totalPrice" column="item_total"/>
+        </collection>
+    </resultMap>
+
+    <!-- 商家发货单列表（分页） -->
+    <select id="selectMerchantShipments" resultMap="MerchantShipmentVOResultMap">
+        SELECT
+            os.id,
+            os.order_id,
+            o.order_no,
+            o.create_time AS order_create_time,
+            o.pay_status,
+            o.pay_amount,
+            os.delivery_status,
+            os.shipping_name,
+            os.shipping_no,
+            os.shipping_time,
+            os.total_amount AS shipment_amount,
+            o.user_id,
+            u.username,
+            u.phone,
+            o.receiver_name,
+            o.receiver_phone,
+            o.receiver_address,
+            oi.id AS item_id,
+            oi.product_id,
+            oi.product_name,
+            oi.product_image,
+            oi.price,
+            oi.quantity,
+            (oi.price * oi.quantity) AS item_total
+        FROM order_shipment os
+                 INNER JOIN `order` o ON os.order_id = o.id
+                 LEFT JOIN user u ON o.user_id = u.id
+                 INNER JOIN order_item oi ON oi.shipment_id = os.id
+        WHERE os.seller_id = #{sellerId}
+        ORDER BY os.create_time DESC
+    </select>
+
+    <!-- 商家某订单下的发货单详情 -->
+    <select id="selectMerchantOrderShipments" resultMap="MerchantShipmentVOResultMap">
+        SELECT
+            os.id,
+            os.order_id,
+            o.order_no,
+            o.create_time AS order_create_time,
+            o.pay_status,
+            o.pay_amount,
+            os.delivery_status,
+            os.shipping_name,
+            os.shipping_no,
+            os.shipping_time,
+            os.total_amount AS shipment_amount,
+            o.user_id,
+            u.username,
+            u.phone,
+            o.receiver_name,
+            o.receiver_phone,
+            o.receiver_address,
+            oi.id AS item_id,
+            oi.product_id,
+            oi.product_name,
+            oi.product_image,
+            oi.price,
+            oi.quantity,
+            (oi.price * oi.quantity) AS item_total
+        FROM order_shipment os
+                 INNER JOIN `order` o ON os.order_id = o.id
+                 LEFT JOIN user u ON o.user_id = u.id
+                 INNER JOIN order_item oi ON oi.shipment_id = os.id
+        WHERE os.order_id = #{orderId}
+          AND os.seller_id = #{sellerId}
+        ORDER BY os.id ASC
+    </select>
+
+    <update id="updateShipmentShipping">
+        UPDATE order_shipment
+        SET delivery_status = 1,
+            shipping_name   = #{shippingName},
+            shipping_no     = #{shippingNo},
+            shipping_time   = NOW()
+        WHERE id = #{shipmentId}
+          AND seller_id = #{sellerId}
+          AND delivery_status = 0
+    </update>
+
+</mapper>

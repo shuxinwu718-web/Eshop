@@ -1,0 +1,65 @@
+spring:
+  file:
+    upload-dir: ./uploads
+  profiles:
+    active: dev
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  mail:                                   # 👈 新增邮件配置
+    host: smtp.qq.com
+    port: 587
+    username: 2368151277@qq.com       # 替换为你的QQ邮箱
+    password: yfxkuhmtayfpdhjh    # 替换为QQ邮箱授权码（不是登录密码）
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          socketFactory:
+            class: javax.net.ssl.SSLSocketFactory
+
+
+# JWT 配置
+jwt:
+  secret: e-commerce-secret-key-2026-128bit-long-string-that-is-at-least-64-characters-long-and-very-secure-please-change-it
+  expiration: 14400000
+
+
+
+
+# 新人礼包
+shop:
+  newbie:
+    coupon-ids: 5,5,5,6,6   # 请替换为实际的优惠券ID（3张满减券 + 2张折扣券）
+
+# MyBatis-Plus
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    map-underscore-to-camel-case: true
+
+# Swagger
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    com.shopsphere: DEBUG

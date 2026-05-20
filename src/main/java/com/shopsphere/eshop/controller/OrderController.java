@@ -1,0 +1,87 @@
+package com.shopsphere.eshop.controller;
+
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.dto.OrderCreateDTO;
+import com.shopsphere.eshop.dto.OrderPageQueryDTO;
+import com.shopsphere.eshop.dto.PayRequest;
+import com.shopsphere.eshop.service.OrderService;
+import com.shopsphere.eshop.utils.JwtUtil;
+import com.shopsphere.eshop.utils.TokenUtils;
+import com.shopsphere.eshop.vo.OrderVO;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/order")
+@RequiredArgsConstructor
+@Tag(name = "订单管理", description = "管理员的对订单表的CRUD和用户查看自己的订单")
+public class OrderController {
+
+    private final OrderService orderService;
+    private final JwtUtil jwtUtil;
+    private final TokenUtils tokenUtils;
+
+    @PostMapping("/create")
+    public Result<?> createOrder(@Valid @RequestBody OrderCreateDTO dto,
+                                 @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(orderService.createOrder(dto, userId));
+    }
+
+
+    @PutMapping("/cancel/{orderId}")
+    public Result<?> cancelOrder(@PathVariable Long orderId,
+                                 @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        orderService.cancelOrder(orderId, userId);
+        return Result.success("取消成功");
+    }
+
+    @PutMapping("/pay/{orderId}")
+    public Result<?> payOrder(@PathVariable Long orderId,
+                              @RequestBody PayRequest payRequest,
+                              @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        orderService.payOrder(orderId, userId, payRequest.getActualAmount());
+        return Result.success("支付成功");
+    }
+
+    @GetMapping("/page")
+    public Result<Page<OrderVO>> pageQuery(OrderPageQueryDTO dto,
+                                           @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(orderService.pageQuery(dto, userId));
+    }
+
+
+    // 用户端：获取当前用户的订单（分页）
+    @GetMapping("/user/page")
+    public Result<Page<OrderVO>> getUserOrders(OrderPageQueryDTO dto,
+                                               @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(orderService.userPageQuery(dto, userId));
+    }
+
+    @GetMapping("/admin/page")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<Page<OrderVO>> adminPageQuery(OrderPageQueryDTO dto) {
+        return Result.success(orderService.adminPageQuery(dto));
+    }
+
+    @GetMapping("/{orderId}")
+    public Result<OrderVO> getOrderDetail(@PathVariable Long orderId,
+                                          @RequestHeader(value = "Authorization", required = true) String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(orderService.getOrderDetail(orderId, userId));
+    }
+}

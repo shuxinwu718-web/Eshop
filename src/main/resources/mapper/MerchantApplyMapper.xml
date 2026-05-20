@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shopsphere.eshop.mapper.MerchantApplyMapper">
+
+    <resultMap id="MerchantApplyVOResultMap" type="com.shopsphere.eshop.vo.MerchantApplyVO">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="username" column="username"/>
+        <result property="nickname" column="nickname"/>
+        <result property="businessName" column="business_name"/>
+        <result property="businessLicense" column="business_license"/>
+        <result property="contactName" column="contact_name"/>
+        <result property="contactPhone" column="contact_phone"/>
+        <result property="businessScope" column="business_scope"/>
+        <result property="address" column="address"/>
+        <result property="status" column="status"/>
+        <result property="remark" column="remark"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <select id="selectApplyPage" resultMap="MerchantApplyVOResultMap">
+        SELECT
+        ma.*,
+        u.username,
+        u.nickname
+        FROM merchant_apply ma
+        LEFT JOIN `user` u ON ma.user_id = u.id
+        <where>
+            <if test="status != null">
+                ma.status = #{status}
+            </if>
+        </where>
+        ORDER BY ma.create_time DESC
+    </select>
+</mapper>
