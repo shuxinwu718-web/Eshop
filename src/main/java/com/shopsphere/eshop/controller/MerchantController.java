@@ -6,6 +6,7 @@ import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.MerchantApplyService;
+import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.service.MerchantNotificationService;
 import com.shopsphere.eshop.service.OrderShipmentService;
 import com.shopsphere.eshop.service.ProductImageService;
@@ -48,6 +49,7 @@ public class MerchantController {
 
     private final MerchantApplyService merchantApplyService;
     private final MerchantNotificationService notificationService;
+    private final MerchantMessageService messageService;
 
 
     private Long getMerchantId(String authHeader) {
@@ -294,6 +296,31 @@ public class MerchantController {
     public Result<?> getProductSales(@RequestHeader("Authorization") String authHeader) {
         Long merchantId = getMerchantId(authHeader);
         return Result.success(productService.getProductSalesByMerchant(merchantId));
+    }
+
+    // ==================== 用户留言 ====================
+
+    @GetMapping("/messages")
+    public Result<Page<MerchantMessage>> getMessages(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        return Result.success(messageService.getMessages(merchantId, pageNum, pageSize));
+    }
+
+    @GetMapping("/messages/unread-count")
+    public Result<Long> getMessageUnreadCount(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        return Result.success(messageService.getUnreadCount(merchantId));
+    }
+
+    @PutMapping("/messages/{id}/read")
+    public Result<?> markMessageRead(@PathVariable Long id,
+                                     @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        messageService.markAsRead(merchantId, id);
+        return Result.success("操作成功");
     }
 
     // ==================== 消息通知 ====================
