@@ -32,17 +32,74 @@ public class UserCouponServiceImpl implements UserCouponService {
 
 
     @Override
-    public List<Coupon> getAvailableCoupons() {
+    public List<Coupon> getAvailableCoupons(Integer type, String keyword, String timeStatus) {
         LocalDateTime now = LocalDateTime.now();
         LambdaQueryWrapper<Coupon> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Coupon::getStatus, 1) // 上架
+        wrapper.eq(Coupon::getStatus, 1)
                 .gt(Coupon::getStock, 0)
-                .and(w -> w.isNull(Coupon::getStartTime).or().le(Coupon::getStartTime, now))
-                .and(w -> w.isNull(Coupon::getEndTime).or().ge(Coupon::getEndTime, now));
+                .eq(Coupon::getObtainType, 0); // 仅普通领取的券显示在领券中心
+
+        // 时间筛选
+        if (timeStatus == null || "ongoing".equals(timeStatus)) {
+            wrapper.and(w -> w.isNull(Coupon::getStartTime).or().le(Coupon::getStartTime, now))
+                    .and(w -> w.isNull(Coupon::getEndTime).or().ge(Coupon::getEndTime, now));
+        } else if ("upcoming".equals(timeStatus)) {
+            wrapper.isNotNull(Coupon::getStartTime)
+                    .gt(Coupon::getStartTime, now);
+        }
+        // "all" 不做时间过滤
+
+        if (type != null) {
+            wrapper.eq(Coupon::getType, type);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.like(Coupon::getName, keyword);
+        }
+        wrapper.orderByDesc(Coupon::getStartTime);
         return couponMapper.selectList(wrapper);
     }
 
+    @Override
+    public List<UserCouponVO> getMyCoupons(Long userId, Integer status) {
+        // 1. 根据状态查询用户券记录
+        LambdaQueryWrapper<UserCoupon> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserCoupon::getUserId, userId);
+        if (status != null) {
+            wrapper.eq(UserCoupon::getStatus, status);
+        }
+        List<UserCoupon> userCoupons = userCouponMapper.selectList(wrapper);
+        if (userCoupons.isEmpty()) return Collections.emptyList();
 
+        // 2. 批量查询优惠券模板
+        Set<Long> couponIds = userCoupons.stream().map(UserCoupon::getCouponId).collect(Collectors.toSet());
+        List<Coupon> coupons = couponMapper.selectBatchIds(couponIds);
+        Map<Long, Coupon> couponMap = coupons.stream().collect(Collectors.toMap(Coupon::getId, Function.identity()));
+
+        LocalDateTime now = LocalDateTime.now();
+        List<UserCouponVO> result = new ArrayList<>();
+
+        for (UserCoupon uc : userCoupons) {
+            Coupon coupon = couponMap.get(uc.getCouponId());
+            if (coupon == null) continue;
+
+            // 对于未使用券（status=0），检查是否过期，若是则更新为已过期并跳过
+            if (status == null || status == 0) {
+                if (coupon.getEndTime() != null && coupon.getEndTime().isBefore(now) && uc.getStatus() == 0) {
+                    uc.setStatus(2);
+                    userCouponMapper.updateById(uc);
+                    continue; // 过期的券不返回
+                }
+            }
+
+            UserCouponVO vo = new UserCouponVO();
+            BeanUtils.copyProperties(coupon, vo);
+            vo.setUserCouponId(uc.getId());
+            vo.setExpireTime(coupon.getEndTime());
+            vo.setStatus(uc.getStatus());
+            result.add(vo);
+        }
+        return result;
+    }
 
     @Override
     @Transactional
@@ -50,6 +107,11 @@ public class UserCouponServiceImpl implements UserCouponService {
         Coupon coupon = couponMapper.selectById(couponId);
         if (coupon == null || coupon.getStatus() != 1) {
             throw new BusinessException("优惠券不存在或已下架");
+        }
+        // 仅允许领取普通领取类型的优惠券，防止绕过秒杀/签到等渠道
+        Integer obtainType = coupon.getObtainType();
+        if (obtainType != null && obtainType != 0) {
+            throw new BusinessException("该优惠券不能直接领取");
         }
         if (coupon.getStock() <= 0) {
             throw new BusinessException("优惠券已抢完");

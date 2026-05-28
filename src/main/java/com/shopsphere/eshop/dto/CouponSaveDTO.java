@@ -27,6 +27,9 @@ public class CouponSaveDTO {
     private Integer stock;
 
     private Integer limitPerUser;
+
+    private Integer obtainType;
+
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime startTime;
 

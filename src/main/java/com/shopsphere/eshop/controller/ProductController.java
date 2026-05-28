@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.ProductPageQueryDTO;
 import com.shopsphere.eshop.dto.ProductSaveDTO;
@@ -43,12 +44,14 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
+    @Log(value = "删除商品", type = "DELETE_PRODUCT", targetType = "Product")
     public Result<?> deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
         return Result.success("删除成功");
     }
 
     @PutMapping("/status/{id}")
+    @Log(value = "修改商品状态", type = "Change_Status", targetType = "Product")
     public Result<?> changeStatus(@PathVariable Long id, @RequestParam Integer status) {
         productService.changeStatus(id, status);
         return Result.success("状态更新成功");

@@ -3,16 +3,17 @@ package com.shopsphere.eshop.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.shopsphere.eshop.dto.OrderCreateDTO;
-import com.shopsphere.eshop.dto.OrderPageQueryDTO;
+import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.vo.OrderVO;
+import com.shopsphere.eshop.vo.RefundApplicationVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -32,11 +33,15 @@ public class OrderServiceImpl implements OrderService {
     private final OrderShipmentMapper orderShipmentMapper;
     private final ProductMapper productMapper;
     private final AddressMapper addressMapper;
-    private final UserMapper userMapper;
-
+    private final RefundApplicationMapper refundMapper;
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
     private final NoticeService noticeService;
+
+    @Scheduled(cron = "0 */5 * * * ?")
+    public void scheduledCancelOrders() {
+        autoCancelExpiredOrders();  // 调用你已有的自动取消方法
+    }
 
     @Override
     @Transactional
@@ -213,18 +218,45 @@ public class OrderServiceImpl implements OrderService {
         if (order.getOrderStatus() != 0) {
             throw new BusinessException("订单已支付，无法取消");
         }
+        // 复用内部取消逻辑
+        cancelOrderInternal(order);
+    }
+
+
+    @Override
+    @Transactional
+    public void autoCancelExpiredOrders() {
+        // 超时时间：30分钟前
+        LocalDateTime expireTime = LocalDateTime.now().minusMinutes(30);
+        List<Order> orders = orderMapper.selectList(
+                new LambdaQueryWrapper<Order>()
+                        .eq(Order::getOrderStatus, 0)      // 待付款
+                        .le(Order::getCreateTime, expireTime)
+        );
+        if (orders.isEmpty()) return;
+
+        for (Order order : orders) {
+            try {
+                cancelOrderInternal(order); // 内部取消逻辑
+            } catch (Exception e) {
+                log.error("自动取消订单失败, orderId={}", order.getId(), e);
+            }
+        }
+    }
+
+    /**
+     * 内部取消订单逻辑（不校验用户，用于定时任务或退款）
+     */
+    private void cancelOrderInternal(Order order) {
+        // 1. 更新订单状态为已取消
         order.setOrderStatus(4);
         order.setCancelTime(LocalDateTime.now());
         orderMapper.updateById(order);
 
-        log.info("订单取消成功 orderId={}, userId={}", orderId, userId);
-
-        // 恢复库存
-        LambdaQueryWrapper<OrderItem> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(OrderItem::getOrderId, orderId);
-        List<OrderItem> items = orderItemMapper.selectList(wrapper);
-
-        // 通知商家
+        // 2. 恢复商品库存
+        List<OrderItem> items = orderItemMapper.selectList(
+                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
+        );
         Set<Long> merchantIds = new HashSet<>();
         for (OrderItem item : items) {
             Product product = productMapper.selectById(item.getProductId());
@@ -234,26 +266,29 @@ public class OrderServiceImpl implements OrderService {
                 merchantIds.add(product.getMerchantId());
             }
         }
+
+        // 3. 发送系统通知（商家）
         for (Long merchantId : merchantIds) {
             noticeService.createAndPublish(
-                    "订单取消通知",
-                    "订单 " + order.getOrderNo() + " 已被用户取消",
+                    "订单超时取消通知",
+                    "订单 " + order.getOrderNo() + " 因超时未支付已被系统自动取消",
                     3,
                     merchantId,
                     "order_cancelled",
-                    orderId
+                    order.getId()
             );
         }
-
-        // 创建系统通知给用户
+        // 4. 发送通知给买家
         noticeService.createAndPublish(
                 "订单已取消",
-                "您的订单 " + order.getOrderNo() + " 已取消",
+                "您的订单 " + order.getOrderNo() + " 因超时未支付已被系统自动取消",
                 3,
-                userId,
+                order.getUserId(),
                 "order_cancelled",
-                orderId
+                order.getId()
         );
+
+        log.info("自动取消订单成功, orderId={}, orderNo={}", order.getId(), order.getOrderNo());
     }
 
 
@@ -448,4 +483,113 @@ public class OrderServiceImpl implements OrderService {
         voPage.setRecords(orderVOs);
         return voPage;
     }
+
+    @Override
+    @Transactional
+    public void applyRefund(Long userId, RefundApplyDTO dto) {
+        Order order = orderMapper.selectById(dto.getOrderId());
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new BusinessException("订单不存在");
+        }
+        // 只有待付款或待发货状态才能申请退款（待付款可直接取消，待发货可申请退款）
+        if (order.getOrderStatus() != 0 && order.getOrderStatus() != 1) {
+            throw new BusinessException("当前订单状态不支持退款");
+        }
+        // 检查是否已有未处理的退款申请
+        LambdaQueryWrapper<RefundApplication> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(RefundApplication::getOrderId, order.getId())
+                .eq(RefundApplication::getStatus, 0);
+        if (refundMapper.selectCount(wrapper) > 0) {
+            throw new BusinessException("已有未处理的退款申请，请勿重复提交");
+        }
+
+        RefundApplication application = new RefundApplication();
+        application.setOrderId(order.getId());
+        application.setUserId(userId);
+        application.setReason(dto.getReason());
+        application.setStatus(0); // 待审核
+        application.setRefundAmount(order.getPayAmount()); // 退实付金额
+        application.setApplyTime(LocalDateTime.now());
+        refundMapper.insert(application);
+
+        // 可选：通知管理员有新退款申请
+        noticeService.createAndPublish(
+                "新的退款申请",
+                "订单 " + order.getOrderNo() + " 申请退款，金额 " + order.getPayAmount(),
+                2,
+                1L, // 假设管理员ID=1，实际可查询管理员列表
+                "refund_apply",
+                application.getId()
+        );
+    }
+
+    @Override
+    @Transactional
+    public void auditRefund(Long adminId, RefundAuditDTO dto) {
+        // 1. 查询退款申请
+        RefundApplication application = refundMapper.selectById(dto.getRefundId());
+        if (application == null || application.getStatus() != 0) {
+            throw new BusinessException("退款申请不存在或已处理");
+        }
+
+        // 2. 查询订单
+        Order order = orderMapper.selectById(application.getOrderId());
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+
+        // 3. 更新退款申请状态
+        application.setStatus(dto.getStatus());
+        application.setRemark(dto.getRemark());
+        application.setAuditTime(LocalDateTime.now());
+        refundMapper.updateById(application);
+
+        // 4. 审核通过处理
+        if (dto.getStatus() == 1) {
+            // 4.1 订单状态改为已退款（假设状态码 5 为已退款）
+            order.setOrderStatus(5);
+            orderMapper.updateById(order);
+
+            // 4.2 恢复库存
+            List<OrderItem> items = orderItemMapper.selectList(
+                    new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
+            );
+            for (OrderItem item : items) {
+                Product product = productMapper.selectById(item.getProductId());
+                if (product != null) {
+                    product.setStock(product.getStock() + item.getQuantity());
+                    productMapper.updateById(product);
+                }
+            }
+
+            // 4.3 发送通知给用户（退款成功）
+            noticeService.createAndPublish(
+                    "退款审核通过",
+                    "您的订单 " + order.getOrderNo() + " 退款已通过，金额 " + application.getRefundAmount() + " 元将原路返回",
+                    1,
+                    order.getUserId(),
+                    "refund_success",
+                    application.getId()
+            );
+        } else {
+            // 5. 审核拒绝，发送通知给用户
+            noticeService.createAndPublish(
+                    "退款被拒绝",
+                    "您的订单 " + order.getOrderNo() + " 退款申请被拒绝，原因：" + (dto.getRemark() != null ? dto.getRemark() : "未说明"),
+                    2,
+                    order.getUserId(),
+                    "refund_reject",
+                    application.getId()
+            );
+        }
+    }
+
+
+    @Override
+    public Page<RefundApplicationVO> getRefundList(RefundQueryDTO queryDTO) {
+        Page<RefundApplicationVO> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
+        return refundMapper.selectRefundPage(page, queryDTO);
+    }
+
+
 }

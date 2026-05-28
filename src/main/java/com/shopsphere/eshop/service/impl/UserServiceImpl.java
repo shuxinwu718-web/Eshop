@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -35,9 +36,9 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
+    private final StringRedisTemplate redisTemplate;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-    @Autowired
-    private UserCouponService userCouponService;
+    private final UserCouponService userCouponService;
 
 
     @Value("${shop.newbie.coupon-ids:}")
@@ -87,6 +88,19 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public Map<String, String> login(LoginRequest request) {
+        // 验证图形验证码
+        if (StringUtils.hasText(request.getCaptchaKey()) && StringUtils.hasText(request.getCaptchaCode())) {
+            String cacheKey = "captcha:" + request.getCaptchaKey();
+            String cachedCode = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedCode == null) {
+                throw new BusinessException("验证码已过期，请刷新");
+            }
+            if (!cachedCode.equalsIgnoreCase(request.getCaptchaCode())) {
+                throw new BusinessException("验证码错误");
+            }
+            // 验证通过后删除，防止重复使用
+            redisTemplate.delete(cacheKey);
+        }
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, request.getUsername());
         User user = userMapper.selectOne(wrapper);
@@ -99,7 +113,9 @@ public class UserServiceImpl implements UserService {
         if (user.getStatus() == 1) {
             throw new BusinessException("账号已被冻结，请联系管理员");
         }
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
+        // 递增会话版本，旧 token 自动失效（一号一端）
+        Long sver = redisTemplate.opsForValue().increment("user:sver:" + user.getId());
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole(), sver);
         Map<String, String> result = new HashMap<>();
         result.put("token", token);
         log.info("生成的完整 token: {}", token);

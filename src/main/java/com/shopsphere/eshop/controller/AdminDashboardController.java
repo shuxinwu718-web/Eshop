@@ -1,8 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.common.Result;
-import com.shopsphere.eshop.dto.DashboardStatsDTO;
-import com.shopsphere.eshop.dto.SalesTrendDTO;
+import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.mapper.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +27,8 @@ public class AdminDashboardController {
     private final ProductMapper productMapper;
     private final CategoryMapper categoryMapper;
     private final MerchantApplyMapper merchantApplyMapper;
+    private final OrderItemMapper orderItemMapper;
+    private final VisitLogMapper visitLogMapper;
 
     @GetMapping("/stats")
     @PreAuthorize("hasRole('ADMIN')")
@@ -100,6 +101,102 @@ public class AdminDashboardController {
         dto.setDates(dates);
         dto.setSalesList(salesList);
         dto.setOrderCountList(orderCountList);
+        return Result.success(dto);
+    }
+
+    @GetMapping("/user-growth")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<UserGrowthDTO> getUserGrowth(@RequestParam(defaultValue = "7") Integer days) {
+        LocalDate today = LocalDate.now();
+        LocalDateTime start = today.minusDays(days - 1).atStartOfDay();
+        LocalDateTime end = today.plusDays(1).atStartOfDay();
+
+        List<Map<String, Object>> daily = userMapper.selectDailyUserGrowth(start, end);
+        Map<LocalDate, Long> newUserMap = new HashMap<>();
+        for (Map<String, Object> row : daily) {
+            newUserMap.put(((java.sql.Date) row.get("date")).toLocalDate(), ((Number) row.get("cnt")).longValue());
+        }
+
+        long cumulative = userMapper.selectTotalUserCountBefore(start);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        List<String> dates = new ArrayList<>();
+        List<Long> newList = new ArrayList<>();
+        List<Long> totalList = new ArrayList<>();
+
+        for (LocalDate date = start.toLocalDate(); date.isBefore(end.toLocalDate()); date = date.plusDays(1)) {
+            dates.add(date.format(fmt));
+            long dailyNew = newUserMap.getOrDefault(date, 0L);
+            cumulative += dailyNew;
+            newList.add(dailyNew);
+            totalList.add(cumulative);
+        }
+
+        UserGrowthDTO dto = new UserGrowthDTO();
+        dto.setDates(dates);
+        dto.setNewUserCountList(newList);
+        dto.setTotalUserCountList(totalList);
+        return Result.success(dto);
+    }
+
+    @GetMapping("/top-products")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<List<TopProductDTO>> getTopProducts(@RequestParam(defaultValue = "30") Integer days,
+                                                       @RequestParam(defaultValue = "10") Integer limit) {
+        LocalDateTime since = LocalDate.now().minusDays(days).atStartOfDay();
+        List<Map<String, Object>> rows = orderItemMapper.selectTopProducts(since, limit);
+        List<TopProductDTO> list = rows.stream().map(row -> {
+            TopProductDTO dto = new TopProductDTO();
+            dto.setProductId(((Number) row.get("productId")).longValue());
+            dto.setProductName((String) row.get("productName"));
+            dto.setProductImage((String) row.get("productImage"));
+            dto.setTotalQuantity(((Number) row.get("totalQuantity")).intValue());
+            dto.setTotalAmount(new BigDecimal(row.get("totalAmount").toString()));
+            return dto;
+        }).collect(Collectors.toList());
+        return Result.success(list);
+    }
+
+    @GetMapping("/conversion")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<ConversionTrendDTO> getConversionTrend(@RequestParam(defaultValue = "7") Integer days) {
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.minusDays(days - 1);
+        LocalDate endDate = today;
+
+        // 每日访客数
+        List<Map<String, Object>> visitStats = visitLogMapper.getDailyStats(startDate, endDate);
+        Map<LocalDate, Long> uvMap = new HashMap<>();
+        for (Map<String, Object> row : visitStats) {
+            uvMap.put(((java.sql.Date) row.get("date")).toLocalDate(), ((Number) row.get("uv")).longValue());
+        }
+
+        // 每日订单数（已支付）
+        List<Map<String, Object>> orderStats = orderMapper.selectDailySales(startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay());
+        Map<LocalDate, Long> orderMap = new HashMap<>();
+        for (Map<String, Object> row : orderStats) {
+            orderMap.put(((java.sql.Date) row.get("date")).toLocalDate(), ((Number) row.get("cnt")).longValue());
+        }
+
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        List<String> dates = new ArrayList<>();
+        List<Long> visitorList = new ArrayList<>();
+        List<Long> orderList = new ArrayList<>();
+        List<Double> rateList = new ArrayList<>();
+
+        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            dates.add(date.format(fmt));
+            long uv = uvMap.getOrDefault(date, 0L);
+            long orders = orderMap.getOrDefault(date, 0L);
+            visitorList.add(uv);
+            orderList.add(orders);
+            rateList.add(uv > 0 ? Math.round((double) orders / uv * 10000.0) / 100.0 : 0.0);
+        }
+
+        ConversionTrendDTO dto = new ConversionTrendDTO();
+        dto.setDates(dates);
+        dto.setVisitorCountList(visitorList);
+        dto.setOrderCountList(orderList);
+        dto.setConversionRateList(rateList);
         return Result.success(dto);
     }
 

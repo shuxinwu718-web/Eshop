@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shopsphere.eshop.mapper.RefundApplicationMapper">
+
+    <select id="selectRefundPage" resultType="com.shopsphere.eshop.vo.RefundApplicationVO">
+        SELECT
+        ra.id,
+        ra.order_id,
+        ra.user_id,
+        ra.reason,
+        ra.status,
+        ra.remark,
+        ra.refund_amount,
+        ra.apply_time,
+        ra.audit_time,
+        o.order_no,
+        u.username
+        FROM refund_application ra
+        LEFT JOIN `order` o ON ra.order_id = o.id
+        LEFT JOIN `user` u ON ra.user_id = u.id
+        <where>
+            <if test="queryDTO.status != null">
+                AND ra.status = #{queryDTO.status}
+            </if>
+            <if test="queryDTO.orderNo != null and queryDTO.orderNo != ''">
+                AND o.order_no LIKE CONCAT('%', #{queryDTO.orderNo}, '%')
+            </if>
+        </where>
+        ORDER BY ra.apply_time DESC
+    </select>
+
+</mapper>

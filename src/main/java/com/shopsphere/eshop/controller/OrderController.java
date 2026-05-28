@@ -1,10 +1,9 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
-import com.shopsphere.eshop.dto.OrderCreateDTO;
-import com.shopsphere.eshop.dto.OrderPageQueryDTO;
-import com.shopsphere.eshop.dto.PayRequest;
+import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
@@ -35,6 +34,7 @@ public class OrderController {
 
 
     @PutMapping("/cancel/{orderId}")
+    @Log(value = "取消订单", type = "Cancle_Order", targetType = "Order")
     public Result<?> cancelOrder(@PathVariable Long orderId,
                                  @RequestHeader(value = "Authorization", required = true) String authHeader) {
         String token = tokenUtils.extractToken(authHeader);
@@ -84,4 +84,26 @@ public class OrderController {
         Long userId = jwtUtil.getUserIdFromToken(token);
         return Result.success(orderService.getOrderDetail(orderId, userId));
     }
+
+    @PostMapping("/refund/apply")
+    public Result<?> applyRefund(@RequestBody @Valid RefundApplyDTO dto,
+                                 @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        orderService.applyRefund(userId, dto);
+        return Result.success("退款申请已提交，请等待审核");
+    }
+
+
+    @PutMapping("/admin/refund/audit")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<?> auditRefund(@RequestBody @Valid RefundAuditDTO dto,
+                                 @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long adminId = jwtUtil.getUserIdFromToken(token);
+        orderService.auditRefund(adminId, dto);
+        return Result.success("审核完成");
+    }
+
+
 }

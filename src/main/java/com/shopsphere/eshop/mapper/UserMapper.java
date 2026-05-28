@@ -22,4 +22,14 @@ public interface UserMapper extends BaseMapper<User> {
 
     @Select("SELECT COUNT(*) FROM user WHERE role = 'USER' AND deleted = 0")
     Long selectUserOnlyCount();
+
+    @Select("SELECT DATE(create_time) as date, COUNT(*) as cnt FROM user WHERE deleted = 0 " +
+            "AND create_time >= #{startDate} AND create_time < #{endDate} " +
+            "GROUP BY DATE(create_time) ORDER BY date")
+    java.util.List<java.util.Map<String, Object>> selectDailyUserGrowth(
+            @Param("startDate") java.time.LocalDateTime startDate,
+            @Param("endDate") java.time.LocalDateTime endDate);
+
+    @Select("SELECT COUNT(*) FROM user WHERE deleted = 0 AND create_time < #{endDate}")
+    Long selectTotalUserCountBefore(@Param("endDate") java.time.LocalDateTime endDate);
 }

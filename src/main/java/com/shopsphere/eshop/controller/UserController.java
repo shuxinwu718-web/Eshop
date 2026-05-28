@@ -1,9 +1,11 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.service.EmailService;
+import com.shopsphere.eshop.service.OnlineUserService;
 import com.shopsphere.eshop.service.UserService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
@@ -24,8 +26,9 @@ public class UserController {
     private final TokenUtils tokenUtils;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    private final EmailService emailService;   // 注入邮件服务
+    private final EmailService emailService;
     private final RedisTemplate<String, String> redisTemplate;
+    private final OnlineUserService onlineUserService;
     @PostMapping("/register")
     public Result<?> register(@Valid @RequestBody RegisterRequest request) {
         userService.register(request);
@@ -49,12 +52,14 @@ public class UserController {
 
     @GetMapping("/admin/page")
     @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "分页查询用户列表", type = "QUERY_USERS", targetType = "User")
     public Result<?> adminPageQuery(UserPageQueryDTO dto) {
         return Result.success(userService.adminPageQuery(dto));
     }
 
     @PostMapping("/admin/freeze/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "冻结用户", type = "FREEZE_USER", targetType = "User")
     public Result<?> freezeUser(@PathVariable Long id) {
         userService.freezeUser(id);
         return Result.success("冻结成功");
@@ -62,13 +67,30 @@ public class UserController {
 
     @PostMapping("/admin/unfreeze/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "解冻用户", type = "UNFREEZE_USER", targetType = "User")
     public Result<?> unfreezeUser(@PathVariable Long id) {
         userService.unfreezeUser(id);
         return Result.success("解冻成功");
     }
 
+    @GetMapping("/admin/online")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "查看在线用户", type = "VIEW_ONLINE_USERS", targetType = "User")
+    public Result<?> getOnlineUsers() {
+        return Result.success(onlineUserService.getOnlineUsers());
+    }
+
+    @PostMapping("/admin/kick/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "强制下线", type = "KICK_USER", targetType = "User")
+    public Result<?> kickUser(@PathVariable Long id) {
+        onlineUserService.kickUser(id);
+        return Result.success("已强制该用户下线");
+    }
+
     @GetMapping("/admin/search")
     @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "搜索用户", type = "SEARCH_USERS", targetType = "User")
     public Result<?> searchUsers(@RequestParam String keyword,
                                  @RequestParam(defaultValue = "1") Integer pageNum,
                                  @RequestParam(defaultValue = "10") Integer pageSize) {
@@ -84,10 +106,6 @@ public class UserController {
         userService.deactivateAccount(userId);
         return Result.success("账号已注销");
     }
-
-
-
-
 
 
 

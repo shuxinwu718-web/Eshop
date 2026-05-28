@@ -24,10 +24,16 @@ public class UserCouponController {
     private final TokenUtils tokenUtils;
     /**
      * 领券中心 - 可领取的优惠券列表
+     * @param type 优惠券类型（0=满减, 1=折扣），可选
+     * @param keyword 搜索关键词，可选
+     * @param timeStatus 时间状态（ongoing=进行中, upcoming=即将开始, all=全部），默认 ongoing
      */
     @GetMapping("/available")
-    public Result<List<Coupon>> getAvailableCoupons() {
-        return Result.success(userCouponService.getAvailableCoupons());
+    public Result<List<Coupon>> getAvailableCoupons(
+            @RequestParam(required = false) Integer type,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false, defaultValue = "ongoing") String timeStatus) {
+        return Result.success(userCouponService.getAvailableCoupons(type, keyword, timeStatus));
     }
 
     /**
@@ -45,9 +51,10 @@ public class UserCouponController {
      * 我的优惠券（未使用）
      */
     @GetMapping("/my")
-    public Result<List<UserCouponVO>> getMyCoupons(@RequestHeader("Authorization") String authHeader) {
+    public Result<List<UserCouponVO>> getMyCoupons(@RequestParam(required = false) Integer status,
+                                                   @RequestHeader("Authorization") String authHeader) {
         Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
-        return Result.success(userCouponService.getMyUsableCoupons(userId));
+        return Result.success(userCouponService.getMyCoupons(userId, status));
     }
 
 

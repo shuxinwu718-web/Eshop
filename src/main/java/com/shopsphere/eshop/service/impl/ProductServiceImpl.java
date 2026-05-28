@@ -12,17 +12,22 @@ import com.shopsphere.eshop.mapper.CategoryMapper;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
+import com.shopsphere.eshop.service.ProductSyncService;
 import com.shopsphere.eshop.utils.PinyinUtils;
 import com.shopsphere.eshop.vo.HotProductVO;
 import com.shopsphere.eshop.vo.ProductSalesVO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +36,16 @@ public class ProductServiceImpl implements ProductService {
     private final ProductMapper productMapper;
     private final CategoryMapper categoryMapper;
     private final ProductImageService productImageService;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper;
+    private final ProductSyncService productSyncService;
+    private static final String CACHE_HOT = "product:hot:";
+    private static final String CACHE_DETAIL = "product:detail:";
+    private static final String CACHE_IMAGES = "product:images:";
+    private static final long HOT_TTL = 5;
+    private static final long DETAIL_TTL = 30;
+    private static final long IMAGES_TTL = 30;
+
     @Override
     public void addProduct(ProductSaveDTO dto) {
         // 检查商品名称是否重复
@@ -49,6 +64,9 @@ public class ProductServiceImpl implements ProductService {
         if (dto.getImages() != null && !dto.getImages().isEmpty()) {
             productImageService.saveProductImages(product.getId(), dto.getImages());
         }
+        productSyncService.syncOneProduct(product);
+        // 新增商品可能影响热榜
+        evictHotCache();
     }
 
     @Override
@@ -72,6 +90,10 @@ public class ProductServiceImpl implements ProductService {
         if (dto.getImages() != null) {
             productImageService.saveProductImages(product.getId(), dto.getImages());
         }
+        productSyncService.syncOneProduct(product);
+        // 更新商品后清除相关缓存
+        evictDetailCache(product.getId());
+        evictHotCache();
     }
 
     @Override
@@ -82,6 +104,12 @@ public class ProductServiceImpl implements ProductService {
         LambdaQueryWrapper<ProductImage> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ProductImage::getProductId, id);
         productImageService.remove(wrapper);
+
+
+        productSyncService.deleteProduct(id);
+        // 删除后清除缓存
+        evictDetailCache(id);
+        evictHotCache();
     }
 
     @Override
@@ -92,6 +120,10 @@ public class ProductServiceImpl implements ProductService {
         }
         product.setStatus(status);
         productMapper.updateById(product);
+
+        // 状态变更影响商品展示，清除缓存
+        evictDetailCache(id);
+        evictHotCache();
     }
 
     @Override
@@ -123,7 +155,23 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public Product getProductById(Long id) {
-        return productMapper.selectById(id);
+        String key = CACHE_DETAIL + id;
+        Object cached = redisTemplate.opsForValue().get(key);
+        if (cached instanceof Product) {
+            return (Product) cached;
+        }
+        // 兼容序列化类型丢失的场景（LinkedHashMap → Product）
+        if (cached instanceof Map) {
+            Product product = objectMapper.convertValue(cached, Product.class);
+            // 重新缓存正确的类型
+            redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
+            return product;
+        }
+        Product product = productMapper.selectById(id);
+        if (product != null) {
+            redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
+        }
+        return product;
     }
 
     @Override
@@ -137,8 +185,28 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public List<HotProductVO> getHotProducts(int limit) {
-        return productMapper.selectHotProducts(limit);
+        String key = CACHE_HOT + limit;
+        Object cached = redisTemplate.opsForValue().get(key);
+        if (cached instanceof List) {
+            List<?> list = (List<?>) cached;
+            if (!list.isEmpty()) {
+                if (list.get(0) instanceof HotProductVO) {
+                    return (List<HotProductVO>) list;
+                }
+                // 兼容序列化类型丢失（LinkedHashMap → HotProductVO）
+                List<HotProductVO> converted = list.stream()
+                        .map(item -> objectMapper.convertValue(item, HotProductVO.class))
+                        .toList();
+                redisTemplate.opsForValue().set(key, converted, HOT_TTL, TimeUnit.MINUTES);
+                return converted;
+            }
+            return (List<HotProductVO>) list;
+        }
+        List<HotProductVO> result = productMapper.selectHotProducts(limit);
+        redisTemplate.opsForValue().set(key, result, HOT_TTL, TimeUnit.MINUTES);
+        return result;
     }
 
     @Override
@@ -163,6 +231,20 @@ public class ProductServiceImpl implements ProductService {
                 ids.add(cat.getId());
                 collectChildIds(all, cat.getId(), ids);
             }
+        }
+    }
+
+    // ========== Redis 缓存操作 ==========
+
+    private void evictDetailCache(Long id) {
+        redisTemplate.delete(CACHE_DETAIL + id);
+        redisTemplate.delete(CACHE_IMAGES + id);
+    }
+
+    private void evictHotCache() {
+        Set<String> keys = redisTemplate.keys(CACHE_HOT + "*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
         }
     }
 }

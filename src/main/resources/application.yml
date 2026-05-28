@@ -10,6 +10,8 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+  elasticsearch:
+    uris: http://localhost:9200
   mail:                                   # 👈 新增邮件配置
     host: smtp.qq.com
     port: 587
@@ -24,14 +26,24 @@ spring:
             enable: true
           socketFactory:
             class: javax.net.ssl.SSLSocketFactory
+    redis:
+      host: localhost
+      port: 6379
+      password:  # 如果没有密码则不填
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
 
 
 # JWT 配置
 jwt:
   secret: e-commerce-secret-key-2026-128bit-long-string-that-is-at-least-64-characters-long-and-very-secure-please-change-it
   expiration: 14400000
-
-
 
 
 # 新人礼包

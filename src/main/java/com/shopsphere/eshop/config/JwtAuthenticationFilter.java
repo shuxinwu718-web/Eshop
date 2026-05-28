@@ -76,9 +76,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (jwtUtil.validateToken(token)) {
                 String username = jwtUtil.getUsernameFromToken(token);
-                log.debug("Token 验证成功，用户名: {}", username);
+                Long userId = jwtUtil.getUserIdFromToken(token);
 
-                // 4. 加载用户信息并设置认证上下文
+                // 4. 检查会话版本号（一号一端：旧 token 自动失效）
+                Long tokenSver = jwtUtil.getSessionVersionFromToken(token);
+                if (onlineUserService.isSessionExpired(userId, tokenSver)) {
+                    log.warn("用户 {} 会话已过期（异地登录），拒绝访问", username);
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=utf-8");
+                    response.getWriter().write("{\"code\":401,\"msg\":\"您的账号已在异地登录，您将被跳转到登录页\",\"data\":null}");
+                    return;
+                }
+
+                // 5. 加载用户信息并设置认证上下文
                 UserDetails userDetails = userService.loadUserByUsername(username);
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
@@ -89,8 +99,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
-                // 5. 更新用户在线心跳
-                Long userId = jwtUtil.getUserIdFromToken(token);
+                // 6. 更新用户在线心跳
                 onlineUserService.updateHeartbeat(userId, username);
 
                 log.info("✅ 用户 {} 认证成功，请求路径: {}", username, requestUri);

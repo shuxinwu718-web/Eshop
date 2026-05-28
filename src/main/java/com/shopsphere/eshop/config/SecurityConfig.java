@@ -31,6 +31,7 @@ public class SecurityConfig {
                                 "/api/user/login", "/api/v1/sse/**",
                                   "/api/user/reset-password/code",
                                 "/api/user/reset-password",
+                                "/api/captcha/**",
                                 "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                         // 商品 GET 放行
                         .requestMatchers(HttpMethod.GET, "/api/product/**").permitAll()
@@ -40,6 +41,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/logs/views/**").permitAll()
                         // 收藏 放行
                         .requestMatchers("/api/favorite/**").permitAll()
+                        // 秒杀 放行（用户端）
+                        .requestMatchers("/api/seckill/sessions").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/seckill/*").authenticated()
 
                         // 静态资源（图片、CSS、JS等）
                         .requestMatchers("/uploads/**").permitAll()  // ← 新增这一行

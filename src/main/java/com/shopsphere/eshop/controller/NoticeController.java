@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.NoticeFormDTO;
 import com.shopsphere.eshop.dto.NoticeQueryDTO;
@@ -42,6 +43,7 @@ public class NoticeController {
     }
 
     @PostMapping
+    @Log(value = "发布通知", type = "PUBLISH_NOTICE", targetType = "Notice")
     public Result<?> create(
             @RequestBody @Valid NoticeFormDTO dto,
             @RequestHeader(value = "Authorization", required = true) String authHeader) {
@@ -63,6 +65,7 @@ public class NoticeController {
     }
 
     @DeleteMapping("/{ids}")
+    @Log(value = "撤回通知", type = "Delete_NOTICE", targetType = "Notice")
     public Result<?> delete(@PathVariable String ids) {
         noticeService.deleteByIds(ids);
         return Result.success("删除成功");

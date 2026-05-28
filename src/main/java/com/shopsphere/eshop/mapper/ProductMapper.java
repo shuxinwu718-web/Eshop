@@ -16,7 +16,7 @@ public interface ProductMapper extends BaseMapper<Product> {
     Long selectProductCount();
 
     @Select("SELECT p.id, p.name, p.price, p.cover_image AS coverImage, p.description, " +
-           "COALESCE(SUM(CASE WHEN o.order_status >= 1 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
+           "COALESCE(SUM(CASE WHEN o.order_status >= 1 AND o.order_status < 4 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
            "ROUND(COALESCE(AVG(pc.rating), 0), 1) AS avgRating " +
            "FROM product p " +
            "LEFT JOIN order_item oi ON p.id = oi.product_id " +
@@ -31,8 +31,8 @@ public interface ProductMapper extends BaseMapper<Product> {
 
     @Select("SELECT p.id AS productId, p.name AS productName, p.cover_image AS productImage, " +
            "p.price, p.stock, " +
-           "COALESCE(SUM(CASE WHEN o.order_status >= 1 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
-           "COALESCE(SUM(CASE WHEN o.order_status >= 1 THEN oi.price * oi.quantity ELSE 0 END), 0) AS totalAmount " +
+           "COALESCE(SUM(CASE WHEN o.order_status >= 1 AND o.order_status < 4 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
+           "COALESCE(SUM(CASE WHEN o.order_status >= 1 AND o.order_status < 4 THEN oi.price * oi.quantity ELSE 0 END), 0) AS totalAmount " +
            "FROM product p " +
            "LEFT JOIN order_item oi ON p.id = oi.product_id " +
            "LEFT JOIN order_shipment os ON oi.shipment_id = os.id " +

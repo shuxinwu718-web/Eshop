@@ -12,8 +12,11 @@ import java.util.List;
 public interface UserCouponService {
     /**
      * 获取用户可领取的普通优惠券列表（领券中心）
+     * @param type 优惠券类型（0=满减, 1=折扣），可选
+     * @param keyword 搜索关键词，可选
+     * @param timeStatus 时间状态（ongoing=进行中, upcoming=即将开始, all=全部），默认 ongoing
      */
-    List<Coupon> getAvailableCoupons();
+    List<Coupon> getAvailableCoupons(Integer type, String keyword, String timeStatus);
 
     // 领取优惠券时（不需要存过期时间，过期时间从 coupon 表获取）
     void receiveCoupon(Long userId, Long couponId);
@@ -30,4 +33,6 @@ public interface UserCouponService {
     void useCoupon(Long userCouponId, String orderNo);
 
     List<UserCouponVO> getUsableCoupons(Long userId, BigDecimal totalAmount);
+
+    List<UserCouponVO> getMyCoupons(Long userId, Integer status);
 }

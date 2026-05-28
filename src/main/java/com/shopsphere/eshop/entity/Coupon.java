@@ -28,6 +28,9 @@ public class Coupon {
     @TableField("limit_per_user")
     private Integer limitPerUser;
 
+    @TableField("obtain_type")
+    private Integer obtainType;
+
     @TableField("start_time")
     private LocalDateTime startTime;
 

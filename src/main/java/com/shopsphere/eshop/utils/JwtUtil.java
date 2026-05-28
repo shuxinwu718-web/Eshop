@@ -83,10 +83,11 @@ public class JwtUtil {
     /**
      * 生成 Token
      */
-    public String generateToken(Long userId, String username, String role) {
+    public String generateToken(Long userId, String username, String role, Long sver) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("role", role);
+        claims.put("sver", sver);
 
         return Jwts.builder()
                 .setClaims(claims)
@@ -95,6 +96,18 @@ public class JwtUtil {
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSecretKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    /**
+     * 从 Token 中获取会话版本号
+     */
+    public Long getSessionVersionFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSecretKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return claims.get("sver", Long.class);
     }
 
     /**
