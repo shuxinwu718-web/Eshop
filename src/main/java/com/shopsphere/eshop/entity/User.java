@@ -18,8 +18,9 @@ public class User {
     private Integer status;  // 0-正常 1-冻结
     // 新增角色字段
     private String role;     // USER, ADMIN, MERCHANT
-
-    private  String avatar; //用户头像
+    private String githubId;   // GitHub 用户 ID（用于关联）
+    private String avatar; //用户头像
+    private Integer gender; // 0-未知 1-男 2-女
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

@@ -31,6 +31,7 @@ public class SecurityConfig {
                                 "/api/user/login", "/api/v1/sse/**",
                                   "/api/user/reset-password/code",
                                 "/api/user/reset-password",
+                                "/api/oauth2/**",
                                 "/api/captcha/**",
                                 "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                         // 商品 GET 放行

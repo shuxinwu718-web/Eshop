@@ -13,6 +13,7 @@ public class UserVO {
     private String role;
     private Integer status;
 
-    private  String avatar; //用户头像
+    private String avatar;
+    private Integer gender;
     private LocalDateTime createTime;
 }

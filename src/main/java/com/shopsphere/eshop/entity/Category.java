@@ -16,6 +16,7 @@ public class Category {
     private Integer level;
     @TableField("sort")
     private Integer sortOrder;
+    private Integer status;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)

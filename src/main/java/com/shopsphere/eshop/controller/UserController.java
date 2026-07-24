@@ -122,9 +122,12 @@ public class UserController {
         detail.setUsername(user.getUsername());
         detail.setNickname(user.getNickname());
         detail.setPhone(user.getPhone());
+        detail.setMobile(user.getPhone());
         detail.setEmail(user.getEmail());
         detail.setAvatar(user.getAvatar());
         detail.setRole(user.getRole());
+        detail.setRoleNames(user.getRole());
+        detail.setGender(user.getGender());
         detail.setCreateTime(user.getCreateTime());
         return Result.success(detail);
     }
@@ -145,6 +148,7 @@ public class UserController {
         if (form.getPhone() != null) user.setPhone(form.getPhone());
         if (form.getEmail() != null) user.setEmail(form.getEmail());
         if (form.getAvatar() != null) user.setAvatar(form.getAvatar());
+        if (form.getGender() != null) user.setGender(form.getGender());
         userService.updateById(user);
         return Result.success(null);
     }

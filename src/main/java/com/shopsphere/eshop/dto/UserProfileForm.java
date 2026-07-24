@@ -8,4 +8,5 @@ public class UserProfileForm {
     private String phone;
     private String email;
     private String avatar;
+    private Integer gender;
 }

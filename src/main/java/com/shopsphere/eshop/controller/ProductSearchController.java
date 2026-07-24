@@ -1,10 +1,13 @@
 package com.shopsphere.eshop.controller;
 
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders;
 import co.elastic.clients.json.JsonData;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.document.ProductDocument;
+import com.shopsphere.eshop.entity.Category;
+import com.shopsphere.eshop.mapper.CategoryMapper;
 import com.shopsphere.eshop.service.ProductSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -16,6 +19,8 @@ import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -27,6 +32,7 @@ public class ProductSearchController {
 
     private final ElasticsearchTemplate esTemplate;
     private final ProductSyncService productSyncService;
+    private final CategoryMapper categoryMapper;
 
     @GetMapping("/search")
     public Result<ProductSearchVO> search(
@@ -62,12 +68,18 @@ public class ProductSearchController {
         }
 
         // 2. 过滤条件（filter context，不参与评分）
-        // 分类过滤
         if (categoryId != null) {
-            boolBuilder.filter(QueryBuilders.term()
-                    .field("categoryId")
-                    .value(categoryId)
-                    .build()._toQuery());
+            List<Long> categoryIds = getAllDescendantCategoryIds(categoryId);
+            if (!categoryIds.isEmpty()) {
+                List<FieldValue> fieldValues = categoryIds.stream()
+                        .map(FieldValue::of)
+                        .collect(Collectors.toList());
+
+                boolBuilder.filter(QueryBuilders.terms()
+                        .field("categoryId")
+                        .terms(t -> t.value(fieldValues))
+                        .build()._toQuery());
+            }
         }
 
         // 价格范围过滤
@@ -145,5 +157,16 @@ public class ProductSearchController {
     public static class SearchResultItem {
         private ProductDocument product;
         private Map<String, List<String>> highlights;
+    }
+
+
+    public List<Long> getAllDescendantCategoryIds(Long categoryId) {
+        List<Long> ids = new ArrayList<>();
+        ids.add(categoryId);
+        List<Category> children = categoryMapper.selectByParentId(categoryId);
+        for (Category child : children) {
+            ids.addAll(getAllDescendantCategoryIds(child.getId()));
+        }
+        return ids;
     }
 }
