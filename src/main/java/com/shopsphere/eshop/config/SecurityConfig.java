@@ -33,7 +33,7 @@ public class SecurityConfig {
                                 "/api/user/reset-password",
                                 "/api/oauth2/**",
                                 "/api/captcha/**",
-                                "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                         // 商品 GET 放行
                         .requestMatchers(HttpMethod.GET, "/api/product/**").permitAll()
                         // 文件上传 放行
