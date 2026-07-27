@@ -8,6 +8,15 @@ import java.time.LocalDateTime;
 @Data
 @TableName("`order`")
 public class Order {
+    // 订单状态常量
+    public static final int STATUS_PENDING_PAY = 0;    // 待付款
+    public static final int STATUS_PAID = 1;            // 已付款/待发货
+    public static final int STATUS_SHIPPED = 2;         // 已发货
+    public static final int STATUS_COMPLETED = 3;       // 已完成
+    public static final int STATUS_CANCELLED = 4;       // 已取消
+    public static final int STATUS_REFUNDING = 5;       // 退款中
+    public static final int STATUS_REFUNDED = 6;        // 已退款
+
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -23,7 +32,6 @@ public class Order {
     @TableField("pay_amount")
     private BigDecimal payAmount;
 
-    @TableField("type")
     private Integer type;
 
     @TableField("pay_status")

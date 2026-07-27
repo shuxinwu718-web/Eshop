@@ -6,6 +6,7 @@ import com.shopsphere.eshop.entity.MerchantMessage;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,6 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/merchant-message")
 @RequiredArgsConstructor
+@Tag(name = "商家对回复信息的接口", description = "接受所有回复消息和回复消息")
 public class MerchantMessageController {
 
     private final MerchantMessageService messageService;

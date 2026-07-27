@@ -5,6 +5,7 @@ import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.LogQueryDTO;
 import com.shopsphere.eshop.entity.OperationLog;
 import com.shopsphere.eshop.service.OperationLogService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/logs")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
+@Tag(name = "管理日志", description = "获取分页的管理日志")
 public class OperationLogController {
 
     private final OperationLogService logService;

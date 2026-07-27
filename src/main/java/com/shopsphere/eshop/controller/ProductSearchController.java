@@ -9,6 +9,7 @@ import com.shopsphere.eshop.document.ProductDocument;
 import com.shopsphere.eshop.entity.Category;
 import com.shopsphere.eshop.mapper.CategoryMapper;
 import com.shopsphere.eshop.service.ProductSyncService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/product/es")
 @RequiredArgsConstructor
+@Tag(name = "商品搜索管理", description = "拼音搜索、排序搜索")
 public class ProductSearchController {
 
     private final ElasticsearchTemplate esTemplate;

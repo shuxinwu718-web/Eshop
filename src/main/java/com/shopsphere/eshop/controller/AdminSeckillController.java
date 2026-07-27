@@ -6,6 +6,7 @@ import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.SeckillSessionSaveDTO;
 import com.shopsphere.eshop.entity.SeckillSession;
 import com.shopsphere.eshop.service.SeckillService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/admin/seckill")
 @RequiredArgsConstructor
+@Tag(name = "管理员秒杀卷活动管理", description = "限时秒券等活动接口")
 public class AdminSeckillController {
 
     private final SeckillService seckillService;

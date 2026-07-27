@@ -16,6 +16,7 @@ public interface ProductService {
     void changeStatus(Long id, Integer status);
     Page<Product> pageQuery(ProductPageQueryDTO dto);
     Product getProductById(Long id);
+    Page<Product> getMerchantProducts(Long merchantId, Integer pageNum, Integer pageSize);
     void batchUpdatePinyin();
     List<HotProductVO> getHotProducts(int limit);
     List<ProductSalesVO> getProductSalesByMerchant(Long merchantId);

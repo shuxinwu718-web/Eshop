@@ -6,6 +6,7 @@ import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.BrowseHistoryService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/product/history")
 @RequiredArgsConstructor
+@Tag(name = "浏览历史接口", description = "添加和查看以及清空所有浏览历史")
 public class BrowseHistoryController {
     private final BrowseHistoryService historyService;
     private final ProductMapper productMapper;

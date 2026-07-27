@@ -6,6 +6,7 @@ import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.mapper.UserMapper;
 import com.shopsphere.eshop.utils.GithubOAuth2Client;
 import com.shopsphere.eshop.utils.JwtUtil;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +23,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/oauth2/github")
 @RequiredArgsConstructor
+@Tag(name = "特殊登录接口（github）", description = "获取github的许可和根据github生成信息判断是登录还是注册")
 public class OAuth2Controller {
 
     private final GithubOAuth2Client githubClient;

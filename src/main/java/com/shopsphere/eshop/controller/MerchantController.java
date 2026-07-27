@@ -13,6 +13,7 @@ import com.shopsphere.eshop.service.ProductService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.dto.ProductSaveDTO;
+import com.shopsphere.eshop.dto.StoreDesignDTO;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import com.shopsphere.eshop.vo.MerchantProductVO;
 import com.shopsphere.eshop.vo.MerchantShipmentVO;
@@ -48,6 +49,7 @@ public class MerchantController {
 
     private final MerchantApplyService merchantApplyService;
     private final MerchantMessageService messageService;
+    private final StoreDesignMapper storeDesignMapper;
 
 
     private Long getMerchantId(String authHeader) {
@@ -230,7 +232,7 @@ public class MerchantController {
             @RequestHeader("Authorization") String authHeader) {
         Long merchantId = getMerchantId(authHeader);
 
-        // 直接查询 order_shipment，不需要经过 product
+        // 查询该商家的所有发货单
         List<OrderShipment> shipments = orderShipmentMapper.selectList(
                 new LambdaQueryWrapper<OrderShipment>()
                         .eq(OrderShipment::getSellerId, merchantId)
@@ -244,7 +246,23 @@ public class MerchantController {
             return Result.success(vo);
         }
 
-        // 统计总销售额和总发货单数
+        // 批量查询关联订单，过滤出已支付的订单
+        Set<Long> allOrderIds = shipments.stream().map(OrderShipment::getOrderId).collect(Collectors.toSet());
+        List<Order> orders = orderMapper.selectBatchIds(allOrderIds);
+        Set<Long> paidOrderIds = orders.stream()
+                .filter(o -> o.getPayStatus() == 1 && o.getDeleted() == 0)
+                .map(Order::getId)
+                .collect(Collectors.toSet());
+        Map<Long, Order> orderMap = orders.stream()
+                .filter(o -> paidOrderIds.contains(o.getId()))
+                .collect(Collectors.toMap(Order::getId, o -> o));
+
+        // 只统计已支付订单的发货单
+        List<OrderShipment> validShipments = shipments.stream()
+                .filter(s -> paidOrderIds.contains(s.getOrderId()))
+                .collect(Collectors.toList());
+
+        // 统计总销售额和总订单数
         BigDecimal totalSales = BigDecimal.ZERO;
         Set<Long> orderIdSet = new HashSet<>();
         Map<String, BigDecimal> dailySalesMap = new LinkedHashMap<>();
@@ -258,15 +276,15 @@ public class MerchantController {
             dailyOrderMap.put(dateStr, new HashSet<>());
         }
 
-        for (OrderShipment shipment : shipments) {
-            totalSales = totalSales.add(shipment.getTotalAmount());
+        for (OrderShipment shipment : validShipments) {
+            BigDecimal amount = shipment.getTotalAmount() != null ? shipment.getTotalAmount() : BigDecimal.ZERO;
+            totalSales = totalSales.add(amount);
             orderIdSet.add(shipment.getOrderId());
 
-            // 用订单创建时间作为日期分组依据
-            Order order = orderMapper.selectById(shipment.getOrderId());
+            Order order = orderMap.get(shipment.getOrderId());
             if (order != null && order.getCreateTime() != null) {
                 String dateKey = order.getCreateTime().toLocalDate().format(fmt);
-                dailySalesMap.merge(dateKey, shipment.getTotalAmount(), BigDecimal::add);
+                dailySalesMap.merge(dateKey, amount, BigDecimal::add);
                 dailyOrderMap.computeIfAbsent(dateKey, k -> new HashSet<>()).add(shipment.getOrderId());
             }
         }
@@ -276,8 +294,8 @@ public class MerchantController {
             MerchantStatisticsVO.DailyStat stat = new MerchantStatisticsVO.DailyStat();
             stat.setDate(entry.getKey());
             stat.setSales(entry.getValue().setScale(2, RoundingMode.HALF_UP));
-            Set<Long> orderIds = dailyOrderMap.get(entry.getKey());
-            stat.setOrders(orderIds != null ? (long) orderIds.size() : 0L);
+            Set<Long> orderIdsInDay = dailyOrderMap.get(entry.getKey());
+            stat.setOrders(orderIdsInDay != null ? (long) orderIdsInDay.size() : 0L);
             dailyStats.add(stat);
         }
 
@@ -290,6 +308,53 @@ public class MerchantController {
     /**
      * 商家各商品销量统计
      */
+    // ==================== 小店设计 ====================
+
+    @GetMapping("/store-design")
+    public Result<StoreDesign> getStoreDesign(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        StoreDesign design = storeDesignMapper.selectOne(
+                new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
+        if (design == null) {
+            design = new StoreDesign();
+            design.setMerchantId(merchantId);
+            design.setBackgroundColor("#667eea");
+        }
+        return Result.success(design);
+    }
+
+    @PutMapping("/store-design")
+    public Result<?> updateStoreDesign(@RequestBody StoreDesignDTO dto,
+                                       @RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        StoreDesign design = storeDesignMapper.selectOne(
+                new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
+        if (design == null) {
+            design = new StoreDesign();
+            design.setMerchantId(merchantId);
+            design.setBackgroundColor(dto.getBackgroundColor());
+            design.setBannerUrl(dto.getBannerUrl());
+            storeDesignMapper.insert(design);
+        } else {
+            design.setBackgroundColor(dto.getBackgroundColor());
+            design.setBannerUrl(dto.getBannerUrl());
+            storeDesignMapper.updateById(design);
+        }
+        return Result.success("保存成功");
+    }
+
+    @DeleteMapping("/store-design/avatar")
+    public Result<?> deleteStoreAvatar(@RequestHeader("Authorization") String authHeader) {
+        Long merchantId = getMerchantId(authHeader);
+        StoreDesign design = storeDesignMapper.selectOne(
+                new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
+        if (design != null) {
+            design.setBannerUrl(null);
+            storeDesignMapper.updateById(design);
+        }
+        return Result.success("头像已删除");
+    }
+
     @GetMapping("/product-sales")
     public Result<?> getProductSales(@RequestHeader("Authorization") String authHeader) {
         Long merchantId = getMerchantId(authHeader);

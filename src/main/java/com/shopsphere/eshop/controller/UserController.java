@@ -9,6 +9,7 @@ import com.shopsphere.eshop.service.OnlineUserService;
 import com.shopsphere.eshop.service.UserService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,7 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 @RestController
 @RequestMapping("/api/user")
 @RequiredArgsConstructor
-
+@Tag(name = "用户表管理和用户端操作接口", description = "包括用户登录、注册、获取用户个人信息以及修改和绑定用户个人信息")
 public class UserController {
 
     private final UserService userService;

@@ -26,4 +26,10 @@ public class Product {
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted;
+
+    @TableField(exist = false)
+    private String merchantName;
+
+    @TableField(exist = false)
+    private String merchantAvatar;
 }

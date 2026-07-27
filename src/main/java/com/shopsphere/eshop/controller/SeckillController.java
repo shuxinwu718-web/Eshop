@@ -12,6 +12,7 @@ import com.shopsphere.eshop.service.SeckillService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.SeckillSessionVO;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/seckill")
 @RequiredArgsConstructor
+@Tag(name = "用户参与秒杀卷活动接口", description = "从redis获取所有的秒杀优惠卷和对应商品的库存和实时根据redis更新商品库存")
 public class SeckillController {
 
     private static final String STOCK_KEY = "seckill:stock:";

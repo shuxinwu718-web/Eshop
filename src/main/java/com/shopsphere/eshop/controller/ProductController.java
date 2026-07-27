@@ -62,6 +62,13 @@ public class ProductController {
         return Result.success(productService.pageQuery(dto));
     }
 
+    @GetMapping("/merchant/{merchantId}")
+    public Result<Page<Product>> getMerchantProducts(@PathVariable Long merchantId,
+                                                      @RequestParam(defaultValue = "1") Integer pageNum,
+                                                      @RequestParam(defaultValue = "20") Integer pageSize) {
+        return Result.success(productService.getMerchantProducts(merchantId, pageNum, pageSize));
+    }
+
     @GetMapping("/{id}")
     public Result<Product> getProductById(@PathVariable Long id) {
         return Result.success(productService.getProductById(id));

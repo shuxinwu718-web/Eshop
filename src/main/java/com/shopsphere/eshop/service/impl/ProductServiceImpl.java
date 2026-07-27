@@ -7,9 +7,11 @@ import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.entity.Category;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.entity.ProductImage;
+import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.CategoryMapper;
 import com.shopsphere.eshop.mapper.ProductMapper;
+import com.shopsphere.eshop.mapper.UserMapper;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
 import com.shopsphere.eshop.service.ProductSyncService;
@@ -39,6 +41,7 @@ public class ProductServiceImpl implements ProductService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
     private final ProductSyncService productSyncService;
+    private final UserMapper userMapper;
     private static final String CACHE_HOT = "product:hot:";
     private static final String CACHE_DETAIL = "product:detail:";
     private static final String CACHE_IMAGES = "product:images:";
@@ -157,21 +160,36 @@ public class ProductServiceImpl implements ProductService {
     public Product getProductById(Long id) {
         String key = CACHE_DETAIL + id;
         Object cached = redisTemplate.opsForValue().get(key);
+        Product product = null;
         if (cached instanceof Product) {
-            return (Product) cached;
-        }
-        // 兼容序列化类型丢失的场景（LinkedHashMap → Product）
-        if (cached instanceof Map) {
-            Product product = objectMapper.convertValue(cached, Product.class);
-            // 重新缓存正确的类型
+            product = (Product) cached;
+        } else if (cached instanceof Map) {
+            product = objectMapper.convertValue(cached, Product.class);
             redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
-            return product;
+        } else {
+            product = productMapper.selectById(id);
+            if (product != null) {
+                redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
+            }
         }
-        Product product = productMapper.selectById(id);
+        // 填充商家信息
         if (product != null) {
-            redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
+            User merchant = userMapper.selectById(product.getMerchantId());
+            if (merchant != null) {
+                product.setMerchantName(merchant.getNickname() != null ? merchant.getNickname() : merchant.getUsername());
+                product.setMerchantAvatar(merchant.getAvatar());
+            }
         }
         return product;
+    }
+
+    @Override
+    public Page<Product> getMerchantProducts(Long merchantId, Integer pageNum, Integer pageSize) {
+        Page<Product> page = new Page<>(pageNum, pageSize);
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
+                .eq(Product::getMerchantId, merchantId)
+                .eq(Product::getStatus, 1);
+        return productMapper.selectPage(page, wrapper);
     }
 
     @Override
