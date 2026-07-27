@@ -1,8 +1,9 @@
 package com.shopsphere.eshop.service;
 
 import com.shopsphere.eshop.entity.Coupon;
+import com.shopsphere.eshop.vo.FestivalCouponVO;
+import com.shopsphere.eshop.vo.SigninMilestoneVO;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -13,8 +14,17 @@ public interface ActivityService {
      */
     Coupon signIn(Long userId);
 
-    // 新增
     List<String> getSignInRecords(Long userId);
 
     Map<String, Object> getSignInStatus(Long userId);
+
+    /**
+     * 获取签到里程碑配置（含用户领取状态）
+     */
+    List<SigninMilestoneVO> getMilestones(Long userId);
+
+    /**
+     * 获取进行中的节日活动（含用户签到进度）
+     */
+    List<FestivalCouponVO> getFestivalCoupons(Long userId);
 }

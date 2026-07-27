@@ -35,4 +35,9 @@ public interface UserCouponService {
     List<UserCouponVO> getUsableCoupons(Long userId, BigDecimal totalAmount);
 
     List<UserCouponVO> getMyCoupons(Long userId, Integer status);
+
+    /**
+     * 领取节日优惠券（验证签到天数、不重复领取）
+     */
+    void claimFestivalCoupon(Long userId, Long planId);
 }

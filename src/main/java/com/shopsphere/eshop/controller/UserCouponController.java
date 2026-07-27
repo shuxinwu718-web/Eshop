@@ -2,11 +2,13 @@ package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.CouponReceiveDTO;
+import com.shopsphere.eshop.dto.FestivalCouponClaimDTO;
 import com.shopsphere.eshop.entity.Coupon;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.UserCouponVO;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/user/coupons")
 @RequiredArgsConstructor
+@Tag(name = "用户使用、获取优惠卷的接口", description = "领取优惠卷、查看优惠卷、根据签到天数领取优惠卷")
 public class UserCouponController {
 
     private final UserCouponService userCouponService;
@@ -69,6 +72,17 @@ public class UserCouponController {
         Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
         List<UserCouponVO> list = userCouponService.getUsableCoupons(userId, totalAmount);
         return Result.success(list);
+    }
+
+    /**
+     * 领取节日活动优惠券（需满足签到天数）
+     */
+    @PostMapping("/claim-festival")
+    public Result<?> claimFestivalCoupon(@RequestBody @Valid FestivalCouponClaimDTO dto,
+                                         @RequestHeader("Authorization") String authHeader) {
+        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+        userCouponService.claimFestivalCoupon(userId, dto.getPlanId());
+        return Result.success("领取成功");
     }
 
 }

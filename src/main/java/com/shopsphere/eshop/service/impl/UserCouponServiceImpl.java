@@ -2,20 +2,28 @@ package com.shopsphere.eshop.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shopsphere.eshop.entity.Coupon;
+import com.shopsphere.eshop.entity.FestivalCouponPlan;
 import com.shopsphere.eshop.entity.UserCoupon;
+import com.shopsphere.eshop.entity.UserSigninRecord;
+import com.shopsphere.eshop.entity.UserSigninReward;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.CouponMapper;
+import com.shopsphere.eshop.mapper.FestivalCouponPlanMapper;
 import com.shopsphere.eshop.mapper.UserCouponMapper;
+import com.shopsphere.eshop.mapper.UserSigninRecordMapper;
+import com.shopsphere.eshop.mapper.UserSigninRewardMapper;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
@@ -23,12 +31,16 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @RequestMapping("/api/user/coupon")
 @Tag(name = "用户折扣劵管理", description = "用户获取、使用折扣劵以及系统自动删除库存")
 public class UserCouponServiceImpl implements UserCouponService {
 
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final FestivalCouponPlanMapper festivalCouponPlanMapper;
+    private final UserSigninRewardMapper signinRewardMapper;
+    private final UserSigninRecordMapper signinRecordMapper;
 
 
     @Override
@@ -254,6 +266,102 @@ public class UserCouponServiceImpl implements UserCouponService {
         return result;
     }
 
+    @Override
+    @Transactional
+    public void claimFestivalCoupon(Long userId, Long planId) {
+        FestivalCouponPlan plan = festivalCouponPlanMapper.selectById(planId);
+        if (plan == null || plan.getStatus() != 1) {
+            throw new BusinessException("活动不存在或已结束");
+        }
+
+        LocalDate today = LocalDate.now();
+        if (today.isBefore(plan.getStartDate()) || today.isAfter(plan.getEndDate())) {
+            throw new BusinessException("活动不在进行中");
+        }
+
+        // 获取用户连续签到天数
+        int consecutiveDays = getConsecutiveDays(userId);
+
+        if (consecutiveDays < plan.getRequiredSigninDays()) {
+            throw new BusinessException("连续签到天数不足，还需" + (plan.getRequiredSigninDays() - consecutiveDays) + "天");
+        }
+
+        // 检查是否已领取（通过 rewardId=plan.couponId 和 rewardType=2 标记节日领取）
+        long claimed = signinRewardMapper.selectCount(
+                new LambdaQueryWrapper<UserSigninReward>()
+                        .eq(UserSigninReward::getUserId, userId)
+                        .eq(UserSigninReward::getRewardId, plan.getCouponId())
+                        .eq(UserSigninReward::getRewardType, 2)
+        );
+        if (claimed > 0) {
+            throw new BusinessException("已领取过该活动优惠券");
+        }
+
+        // 发放优惠券
+        grantCoupon(userId, plan.getCouponId());
+
+        // 记录奖励
+        UserSigninReward reward = new UserSigninReward();
+        reward.setUserId(userId);
+        reward.setRewardType(2);
+        reward.setRewardId(plan.getCouponId());
+        reward.setSigninConsecutiveDays(consecutiveDays);
+        reward.setCreateTime(LocalDateTime.now());
+        signinRewardMapper.insert(reward);
+
+        log.info("用户{}领取节日活动优惠券: planId={}, couponId={}", userId, planId, plan.getCouponId());
+    }
+
+    private int getConsecutiveDays(Long userId) {
+        LocalDate today = LocalDate.now();
+        // 今日是否签到
+        boolean signedToday = signinRecordMapper.selectCount(
+                new LambdaQueryWrapper<UserSigninRecord>()
+                        .eq(UserSigninRecord::getUserId, userId)
+                        .eq(UserSigninRecord::getSignDate, today)
+        ) > 0;
+
+        if (signedToday) {
+            List<UserSigninRecord> records = signinRecordMapper.selectList(
+                    new LambdaQueryWrapper<UserSigninRecord>()
+                            .eq(UserSigninRecord::getUserId, userId)
+                            .orderByDesc(UserSigninRecord::getSignDate)
+            );
+            int count = 1;
+            LocalDate prev = today;
+            for (UserSigninRecord r : records) {
+                LocalDate sd = r.getSignDate();
+                if (sd.equals(prev)) continue;
+                if (sd.equals(prev.minusDays(1))) {
+                    count++;
+                    prev = sd;
+                } else break;
+            }
+            return count;
+        } else {
+            boolean yesterdaySigned = signinRecordMapper.selectCount(
+                    new LambdaQueryWrapper<UserSigninRecord>()
+                            .eq(UserSigninRecord::getUserId, userId)
+                            .eq(UserSigninRecord::getSignDate, today.minusDays(1))
+            ) > 0;
+            if (!yesterdaySigned) return 0;
+
+            List<UserSigninRecord> records = signinRecordMapper.selectList(
+                    new LambdaQueryWrapper<UserSigninRecord>()
+                            .eq(UserSigninRecord::getUserId, userId)
+                            .orderByDesc(UserSigninRecord::getSignDate)
+            );
+            int count = 0;
+            LocalDate current = today.minusDays(1);
+            for (UserSigninRecord r : records) {
+                if (r.getSignDate().equals(current)) {
+                    count++;
+                    current = current.minusDays(1);
+                } else break;
+            }
+            return count;
+        }
+    }
 
 
 }

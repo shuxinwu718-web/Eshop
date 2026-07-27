@@ -5,6 +5,8 @@ import com.shopsphere.eshop.entity.Coupon;
 import com.shopsphere.eshop.service.ActivityService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
+import com.shopsphere.eshop.vo.FestivalCouponVO;
+import com.shopsphere.eshop.vo.SigninMilestoneVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -51,8 +53,22 @@ public class ActivityController {
         return Result.success(status);
     }
 
+    /**
+     * 获取签到里程碑配置（含用户领取状态）
+     */
+    @GetMapping("/signin/milestones")
+    public Result<List<SigninMilestoneVO>> getMilestones(@RequestHeader("Authorization") String authHeader) {
+        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+        return Result.success(activityService.getMilestones(userId));
+    }
 
-
-
+    /**
+     * 获取进行中的节日活动（含用户签到进度）
+     */
+    @GetMapping("/festival-coupons")
+    public Result<List<FestivalCouponVO>> getFestivalCoupons(@RequestHeader("Authorization") String authHeader) {
+        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+        return Result.success(activityService.getFestivalCoupons(userId));
+    }
 
 }
