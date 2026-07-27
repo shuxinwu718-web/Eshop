@@ -53,6 +53,15 @@ public class OrderController {
         return Result.success("支付成功");
     }
 
+    @PutMapping("/confirm-receive/{orderId}")
+    public Result<?> confirmReceive(@PathVariable Long orderId,
+                                    @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        orderService.confirmReceive(orderId, userId);
+        return Result.success("确认收货成功");
+    }
+
     @GetMapping("/page")
     public Result<Page<OrderVO>> pageQuery(OrderPageQueryDTO dto,
                                            @RequestHeader(value = "Authorization", required = true) String authHeader) {
@@ -101,8 +110,56 @@ public class OrderController {
                                  @RequestHeader("Authorization") String authHeader) {
         String token = tokenUtils.extractToken(authHeader);
         Long adminId = jwtUtil.getUserIdFromToken(token);
+        dto.setOperatorRole("ADMIN");
         orderService.auditRefund(adminId, dto);
         return Result.success("审核完成");
+    }
+
+    /**
+     * 商户审核退款
+     */
+    @PutMapping("/merchant/refund/audit")
+    @PreAuthorize("hasRole('MERCHANT')")
+    public Result<?> merchantAuditRefund(@RequestBody @Valid RefundAuditDTO dto,
+                                         @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long merchantId = jwtUtil.getUserIdFromToken(token);
+        dto.setOperatorRole("MERCHANT");
+        orderService.auditRefund(merchantId, dto);
+        return Result.success("审核完成");
+    }
+
+    /**
+     * 查询退款进度日志
+     */
+    @GetMapping("/refund/progress/{refundId}")
+    public Result<?> getRefundProgress(@PathVariable Long refundId) {
+        return Result.success(orderService.getRefundProgress(refundId));
+    }
+
+    /**
+     * 退款详情及时间线
+     */
+    @GetMapping("/refund/stats/{refundId}")
+    public Result<?> getRefundStats(@PathVariable Long refundId,
+                                    @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        return Result.success(orderService.getRefundStats(userId, refundId));
+    }
+
+    /**
+     * 提交退款满意度评价
+     */
+    @PostMapping("/refund/satisfaction")
+    public Result<?> submitSatisfaction(@RequestParam Long refundId,
+                                        @RequestParam Integer rating,
+                                        @RequestParam(required = false) String feedback,
+                                        @RequestHeader("Authorization") String authHeader) {
+        String token = tokenUtils.extractToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        orderService.submitSatisfaction(userId, refundId, rating, feedback);
+        return Result.success("评价成功");
     }
 
 

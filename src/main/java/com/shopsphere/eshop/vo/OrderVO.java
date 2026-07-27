@@ -20,7 +20,15 @@ public class OrderVO {
     private String receiverPhone;
     private String receiverAddress;
 
+    /** 退款记录ID（有退款时存在） */
+    private Long refundId;
+    /** 退款状态（有退款时存在） */
+    private Integer refundStatus;
+    /** 是否已提交退款反馈评价 */
+    private Boolean evaluated;
+
     private List<OrderItemVO> items;
+    private List<ShipmentVO> shipments;
 
     @Data
     public static class OrderItemVO {
@@ -35,5 +43,17 @@ public class OrderVO {
         private String shippingNo;
         private String shippingName;
         private Integer deliveryStatus;
+        private String shipStatus; // "pending" / "shipped" / "received"
+    }
+
+    @Data
+    public static class ShipmentVO {
+        private Long id;
+        private Integer deliveryStatus;
+        private String shippingName;
+        private String shippingNo;
+        private LocalDateTime shippingTime;
+        private LocalDateTime receivedTime;
+        private List<Long> itemIds;
     }
 }

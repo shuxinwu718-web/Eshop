@@ -1,10 +1,10 @@
 package com.shopsphere.eshop.vo;
 
 import lombok.Data;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-//用户申请订单退款
 @Data
 public class RefundApplicationVO {
     private Long id;
@@ -13,9 +13,14 @@ public class RefundApplicationVO {
     private Long userId;
     private String username;
     private String reason;
+    private Long reasonCategoryId;
+    private String reasonCategoryName;
     private Integer status;
     private String remark;
     private BigDecimal refundAmount;
     private LocalDateTime applyTime;
     private LocalDateTime auditTime;
+    private LocalDateTime merchantAuditTime;
+    private LocalDateTime adminAuditTime;
+    private LocalDateTime refundTime;
 }

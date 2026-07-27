@@ -9,6 +9,7 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
+import com.shopsphere.eshop.entity.RefundReasonCategory;
 import com.shopsphere.eshop.vo.OrderVO;
 import com.shopsphere.eshop.vo.RefundApplicationVO;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,10 @@ public class OrderServiceImpl implements OrderService {
     private final RefundApplicationMapper refundMapper;
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final RefundProgressLogMapper refundProgressLogMapper;
+    private final PaymentRecordMapper paymentRecordMapper;
+    private final RefundSatisfactionMapper refundSatisfactionMapper;
+    private final RefundReasonCategoryMapper refundReasonCategoryMapper;
     private final NoticeService noticeService;
 
     @Scheduled(cron = "0 */5 * * * ?")
@@ -267,7 +272,10 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 3. 发送系统通知（商家）
+        // 3. 归还优惠券
+        releaseCouponIfAny(order.getOrderNo());
+
+        // 4. 发送系统通知（商家）
         for (Long merchantId : merchantIds) {
             noticeService.createAndPublish(
                     "订单超时取消通知",
@@ -278,7 +286,7 @@ public class OrderServiceImpl implements OrderService {
                     order.getId()
             );
         }
-        // 4. 发送通知给买家
+        // 5. 发送通知给买家
         noticeService.createAndPublish(
                 "订单已取消",
                 "您的订单 " + order.getOrderNo() + " 因超时未支付已被系统自动取消",
@@ -364,6 +372,40 @@ public class OrderServiceImpl implements OrderService {
 
 
     @Override
+    @Transactional
+    public void confirmReceive(Long orderId, Long userId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new BusinessException("订单不存在");
+        }
+        if (order.getOrderStatus() != 2) {
+            throw new BusinessException("订单状态异常，仅已发货订单可确认收货");
+        }
+
+        // 将当前已发货(1)的发货单标记为已签收(2)
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<OrderShipment> sw = new LambdaUpdateWrapper<>();
+        sw.eq(OrderShipment::getOrderId, orderId)
+                .eq(OrderShipment::getDeliveryStatus, 1)
+                .set(OrderShipment::getDeliveryStatus, 2)
+                .set(OrderShipment::getReceivedTime, now);
+        orderShipmentMapper.update(null, sw);
+
+        // 检查是否所有物流单都已签收
+        long totalShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>().eq(OrderShipment::getOrderId, orderId));
+        long receivedShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>()
+                        .eq(OrderShipment::getOrderId, orderId)
+                        .eq(OrderShipment::getDeliveryStatus, 2));
+        if (totalShipments == receivedShipments) {
+            order.setOrderStatus(3);
+            order.setFinishTime(now);
+            orderMapper.updateById(order);
+        }
+    }
+
+    @Override
     public Page<OrderVO> pageQuery(OrderPageQueryDTO dto, Long userId) {
         Page<Order> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
@@ -408,6 +450,25 @@ public class OrderServiceImpl implements OrderService {
         vo.setReceiverPhone(order.getReceiverPhone());
         vo.setReceiverAddress(order.getReceiverAddress());
 
+        // 查询退款记录（如果有，取最新一条）
+        LambdaQueryWrapper<RefundApplication> refundWrapper = new LambdaQueryWrapper<>();
+        refundWrapper.eq(RefundApplication::getOrderId, order.getId())
+                .orderByDesc(RefundApplication::getId)
+                .last("LIMIT 1");
+        RefundApplication refundApp = refundMapper.selectOne(refundWrapper);
+        if (refundApp != null) {
+            vo.setRefundId(refundApp.getId());
+            vo.setRefundStatus(refundApp.getStatus());
+
+            // 查询是否已提交反馈评价
+            LambdaQueryWrapper<RefundSatisfaction> satisfactionWrapper = new LambdaQueryWrapper<>();
+            satisfactionWrapper.eq(RefundSatisfaction::getRefundId, refundApp.getId());
+            long count = refundSatisfactionMapper.selectCount(satisfactionWrapper);
+            vo.setEvaluated(count > 0);
+        } else {
+            vo.setEvaluated(false);
+        }
+
         // 查询所有商品明细
         LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
         itemWrapper.eq(OrderItem::getOrderId, order.getId());
@@ -434,10 +495,36 @@ public class OrderServiceImpl implements OrderService {
                 itemVO.setShippingName(shipment.getShippingName());
                 itemVO.setShippingNo(shipment.getShippingNo());
                 itemVO.setDeliveryStatus(shipment.getDeliveryStatus());
+                if (shipment.getDeliveryStatus() != null) {
+                    switch (shipment.getDeliveryStatus()) {
+                        case 0: itemVO.setShipStatus("pending"); break;
+                        case 1: itemVO.setShipStatus("shipped"); break;
+                        case 2: itemVO.setShipStatus("received"); break;
+                        default: itemVO.setShipStatus("pending");
+                    }
+                }
             }
             return itemVO;
         }).collect(Collectors.toList());
         vo.setItems(itemVOs);
+
+        // 构建发货单VO列表
+        List<OrderVO.ShipmentVO> shipmentVOs = shipments.stream().map(s -> {
+            OrderVO.ShipmentVO sv = new OrderVO.ShipmentVO();
+            sv.setId(s.getId());
+            sv.setDeliveryStatus(s.getDeliveryStatus());
+            sv.setShippingName(s.getShippingName());
+            sv.setShippingNo(s.getShippingNo());
+            sv.setShippingTime(s.getShippingTime());
+            sv.setReceivedTime(s.getReceivedTime());
+            sv.setItemIds(orderItemMapper.selectList(
+                    new LambdaQueryWrapper<OrderItem>()
+                            .eq(OrderItem::getShipmentId, s.getId())
+            ).stream().map(OrderItem::getId).collect(Collectors.toList()));
+            return sv;
+        }).collect(Collectors.toList());
+        vo.setShipments(shipmentVOs);
+
         return vo;
     }
 
@@ -491,33 +578,41 @@ public class OrderServiceImpl implements OrderService {
         if (order == null || !order.getUserId().equals(userId)) {
             throw new BusinessException("订单不存在");
         }
-        // 只有待付款或待发货状态才能申请退款（待付款可直接取消，待发货可申请退款）
-        if (order.getOrderStatus() != 0 && order.getOrderStatus() != 1) {
+        // 已付款、已发货、已完成状态均可申请退款
+        if (order.getOrderStatus() != 1 && order.getOrderStatus() != 2 && order.getOrderStatus() != 3) {
             throw new BusinessException("当前订单状态不支持退款");
         }
-        // 检查是否已有未处理的退款申请
+        // 检查是否已有未处理完的退款申请
         LambdaQueryWrapper<RefundApplication> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(RefundApplication::getOrderId, order.getId())
-                .eq(RefundApplication::getStatus, 0);
+                .in(RefundApplication::getStatus,
+                        RefundApplication.STATUS_PENDING_MERCHANT,
+                        RefundApplication.STATUS_PENDING_ADMIN,
+                        RefundApplication.STATUS_APPROVED,
+                        RefundApplication.STATUS_REFUNDING);
         if (refundMapper.selectCount(wrapper) > 0) {
-            throw new BusinessException("已有未处理的退款申请，请勿重复提交");
+            throw new BusinessException("已有未处理完的退款申请");
         }
 
         RefundApplication application = new RefundApplication();
         application.setOrderId(order.getId());
         application.setUserId(userId);
         application.setReason(dto.getReason());
-        application.setStatus(0); // 待审核
-        application.setRefundAmount(order.getPayAmount()); // 退实付金额
+        application.setReasonCategoryId(dto.getReasonCategoryId());
+        application.setStatus(RefundApplication.STATUS_PENDING_MERCHANT);
+        application.setRefundAmount(order.getPayAmount());
         application.setApplyTime(LocalDateTime.now());
         refundMapper.insert(application);
 
-        // 可选：通知管理员有新退款申请
+        // 记录进度
+        addProgressLog(application.getId(), "申请提交", "用户" + userId, "USER", null);
+
+        // 通知管理员/商户有新退款申请
         noticeService.createAndPublish(
                 "新的退款申请",
                 "订单 " + order.getOrderNo() + " 申请退款，金额 " + order.getPayAmount(),
                 2,
-                1L, // 假设管理员ID=1，实际可查询管理员列表
+                1L,
                 "refund_apply",
                 application.getId()
         );
@@ -526,62 +621,158 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public void auditRefund(Long adminId, RefundAuditDTO dto) {
-        // 1. 查询退款申请
         RefundApplication application = refundMapper.selectById(dto.getRefundId());
-        if (application == null || application.getStatus() != 0) {
-            throw new BusinessException("退款申请不存在或已处理");
+        if (application == null) {
+            throw new BusinessException("退款申请不存在");
         }
 
-        // 2. 查询订单
         Order order = orderMapper.selectById(application.getOrderId());
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
 
-        // 3. 更新退款申请状态
-        application.setStatus(dto.getStatus());
-        application.setRemark(dto.getRemark());
-        application.setAuditTime(LocalDateTime.now());
-        refundMapper.updateById(application);
+        String operatorRole = dto.getOperatorRole() != null ? dto.getOperatorRole() : "ADMIN";
 
-        // 4. 审核通过处理
-        if (dto.getStatus() == 1) {
-            // 4.1 订单状态改为已退款（假设状态码 5 为已退款）
-            order.setOrderStatus(5);
-            orderMapper.updateById(order);
-
-            // 4.2 恢复库存
-            List<OrderItem> items = orderItemMapper.selectList(
-                    new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
-            );
-            for (OrderItem item : items) {
-                Product product = productMapper.selectById(item.getProductId());
-                if (product != null) {
-                    product.setStock(product.getStock() + item.getQuantity());
-                    productMapper.updateById(product);
-                }
+        // 根据当前状态 + 操作角色决定流转
+        if (application.getStatus() == RefundApplication.STATUS_PENDING_MERCHANT
+                && "MERCHANT".equals(operatorRole)) {
+            // —— 商户审核 ——
+            if (dto.getStatus() == RefundApplication.STATUS_REJECTED) {
+                application.setStatus(RefundApplication.STATUS_REJECTED);
+                application.setRemark(dto.getRemark());
+                application.setAuditTime(LocalDateTime.now());
+                addProgressLog(application.getId(), "商户审核", "商户" + adminId, "MERCHANT",
+                        dto.getRemark() != null ? "拒绝：" + dto.getRemark() : "拒绝");
+                notifyUser(order, application, "refund_reject", "退款被拒绝",
+                        "您的订单 " + order.getOrderNo() + " 退款申请被商户拒绝");
+            } else {
+                // 商户通过 → 待管理员审核
+                application.setStatus(RefundApplication.STATUS_PENDING_ADMIN);
+                application.setMerchantAuditTime(LocalDateTime.now());
+                addProgressLog(application.getId(), "商户审核", "商户" + adminId, "MERCHANT", "通过");
             }
 
-            // 4.3 发送通知给用户（退款成功）
-            noticeService.createAndPublish(
-                    "退款审核通过",
-                    "您的订单 " + order.getOrderNo() + " 退款已通过，金额 " + application.getRefundAmount() + " 元将原路返回",
-                    1,
-                    order.getUserId(),
-                    "refund_success",
-                    application.getId()
-            );
+        } else if (application.getStatus() == RefundApplication.STATUS_PENDING_ADMIN
+                && "ADMIN".equals(operatorRole)) {
+            // —— 管理员审核 ——
+            if (dto.getStatus() == RefundApplication.STATUS_REJECTED) {
+                application.setStatus(RefundApplication.STATUS_REJECTED);
+                application.setRemark(dto.getRemark());
+                application.setAuditTime(LocalDateTime.now());
+                addProgressLog(application.getId(), "管理员审核", "管理员" + adminId, "ADMIN",
+                        dto.getRemark() != null ? "拒绝：" + dto.getRemark() : "拒绝");
+                notifyUser(order, application, "refund_reject", "退款被拒绝",
+                        "您的订单 " + order.getOrderNo() + " 退款申请被管理员拒绝");
+            } else {
+                // 管理员通过 → 已通过（待执行退款）
+                application.setStatus(RefundApplication.STATUS_APPROVED);
+                application.setAdminAuditTime(LocalDateTime.now());
+                application.setAuditTime(LocalDateTime.now());
+                addProgressLog(application.getId(), "管理员审核", "管理员" + adminId, "ADMIN", "通过");
+                notifyUser(order, application, "refund_approved", "退款已通过",
+                        "您的订单 " + order.getOrderNo() + " 退款已审核通过，即将执行退款");
+            }
+
+        } else if (application.getStatus() == RefundApplication.STATUS_APPROVED
+                && "ADMIN".equals(operatorRole)
+                && dto.getStatus() == RefundApplication.STATUS_REFUNDING) {
+            // —— 管理员执行退款 ——
+            application.setStatus(RefundApplication.STATUS_REFUNDING);
+            addProgressLog(application.getId(), "退款执行", "管理员" + adminId, "ADMIN", "开始退款");
+            refundMapper.updateById(application);
+
+            // 执行退款（模拟）
+            executeRefund(order, application, adminId);
+
         } else {
-            // 5. 审核拒绝，发送通知给用户
-            noticeService.createAndPublish(
-                    "退款被拒绝",
-                    "您的订单 " + order.getOrderNo() + " 退款申请被拒绝，原因：" + (dto.getRemark() != null ? dto.getRemark() : "未说明"),
-                    2,
-                    order.getUserId(),
-                    "refund_reject",
-                    application.getId()
-            );
+            throw new BusinessException("非法操作：当前状态不允许此审核操作");
         }
+
+        refundMapper.updateById(application);
+    }
+
+    /**
+     * 执行退款：更新订单状态、恢复库存、记录支付退款
+     */
+    private void executeRefund(Order order, RefundApplication application, Long adminId) {
+        // 1. 订单状态改为已退款
+        order.setOrderStatus(6);
+        orderMapper.updateById(order);
+
+        // 2. 恢复库存
+        List<OrderItem> items = orderItemMapper.selectList(
+                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId()));
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            if (product != null) {
+                product.setStock(product.getStock() + item.getQuantity());
+                productMapper.updateById(product);
+            }
+        }
+
+        // 3. 更新支付记录状态
+        PaymentRecord payRecord = paymentRecordMapper.selectOne(
+                new LambdaQueryWrapper<PaymentRecord>()
+                        .eq(PaymentRecord::getOrderId, order.getId())
+                        .eq(PaymentRecord::getStatus, 1));
+        if (payRecord != null) {
+            payRecord.setStatus(2);
+            payRecord.setRefundTime(LocalDateTime.now());
+            paymentRecordMapper.updateById(payRecord);
+        }
+
+        // 4. 更新退款申请状态为已退款
+        application.setStatus(RefundApplication.STATUS_REFUNDED);
+        application.setRefundTime(LocalDateTime.now());
+        addProgressLog(application.getId(), "退款完成", "管理员" + adminId, "ADMIN", "退款已执行");
+
+        // 5. 通知用户
+        notifyUser(order, application, "refund_success", "退款成功",
+                "您的订单 " + order.getOrderNo() + " 已退款 " + application.getRefundAmount() + " 元");
+    }
+
+    /**
+     * 归还优惠券：将订单使用的优惠券重置为未使用状态
+     */
+    private void releaseCouponIfAny(String orderNo) {
+        UserCoupon coupon = userCouponMapper.selectOne(
+                new LambdaQueryWrapper<UserCoupon>()
+                        .eq(UserCoupon::getOrderNo, orderNo));
+        if (coupon != null) {
+            coupon.setStatus(0);
+            coupon.setUseTime(null);
+            coupon.setOrderNo(null);
+            userCouponMapper.updateById(coupon);
+            log.info("优惠券已归还, couponId={}, orderNo={}", coupon.getId(), orderNo);
+        }
+    }
+
+    /**
+     * 添加退款进度日志
+     */
+    private void addProgressLog(Long refundId, String nodeName, String operator, String operatorRole, String remark) {
+        RefundProgressLog log = new RefundProgressLog();
+        log.setRefundId(refundId);
+        log.setNodeName(nodeName);
+        log.setOperator(operator);
+        log.setOperatorRole(operatorRole);
+        log.setRemark(remark);
+        log.setCreateTime(LocalDateTime.now());
+        refundProgressLogMapper.insert(log);
+    }
+
+    /**
+     * 发送退款通知给用户
+     */
+    private void notifyUser(Order order, RefundApplication application, String bizType, String title, String content) {
+        noticeService.createAndPublish(
+                title,
+                content,
+                1,
+                order.getUserId(),
+                bizType,
+                application.getId()
+        );
     }
 
 
@@ -591,5 +782,77 @@ public class OrderServiceImpl implements OrderService {
         return refundMapper.selectRefundPage(page, queryDTO);
     }
 
+    @Override
+    public List<RefundProgressLog> getRefundProgress(Long refundId) {
+        return refundProgressLogMapper.selectList(
+                new LambdaQueryWrapper<RefundProgressLog>()
+                        .eq(RefundProgressLog::getRefundId, refundId)
+                        .orderByAsc(RefundProgressLog::getCreateTime));
+    }
+
+    @Override
+    public List<RefundReasonCategory> getReasonCategories() {
+        return refundReasonCategoryMapper.selectList(
+                new LambdaQueryWrapper<RefundReasonCategory>()
+                        .eq(RefundReasonCategory::getStatus, 1)
+                        .orderByAsc(RefundReasonCategory::getSort));
+    }
+
+    @Override
+    @Transactional
+    public void submitSatisfaction(Long userId, Long refundId, Integer rating, String feedback) {
+        RefundApplication application = refundMapper.selectById(refundId);
+        if (application == null || !application.getUserId().equals(userId)) {
+            throw new BusinessException("退款申请不存在");
+        }
+        if (application.getStatus() != RefundApplication.STATUS_REFUNDED) {
+            throw new BusinessException("仅已完成退款可以评价");
+        }
+        // 每个退款只允许一次评价
+        long count = refundSatisfactionMapper.selectCount(
+                new LambdaQueryWrapper<RefundSatisfaction>()
+                        .eq(RefundSatisfaction::getRefundId, refundId));
+        if (count > 0) {
+            throw new BusinessException("已评价过该退款");
+        }
+        RefundSatisfaction satisfaction = new RefundSatisfaction();
+        satisfaction.setRefundId(refundId);
+        satisfaction.setUserId(userId);
+        satisfaction.setRating(rating);
+        satisfaction.setFeedback(feedback);
+        satisfaction.setCreateTime(LocalDateTime.now());
+        refundSatisfactionMapper.insert(satisfaction);
+    }
+
+    @Override
+    public Map<String, Object> getRefundStats(Long userId, Long refundId) {
+        RefundApplication application = refundMapper.selectById(refundId);
+        if (application == null || !application.getUserId().equals(userId)) {
+            throw new BusinessException("退款申请不存在");
+        }
+        List<RefundProgressLog> logs = getRefundProgress(refundId);
+        // 满意度反馈
+        RefundSatisfaction satisfaction = refundSatisfactionMapper.selectOne(
+                new LambdaQueryWrapper<RefundSatisfaction>()
+                        .eq(RefundSatisfaction::getRefundId, refundId));
+        Map<String, Object> result = new HashMap<>();
+        result.put("progress", logs);
+        result.put("satisfaction", satisfaction);
+        // 计算各节点时间
+        Map<String, Object> timeline = new LinkedHashMap<>();
+        timeline.put("申请时间", application.getApplyTime());
+        timeline.put("商户审核时间", application.getMerchantAuditTime());
+        timeline.put("管理员审核时间", application.getAdminAuditTime());
+        timeline.put("退款完成时间", application.getRefundTime());
+        result.put("timeline", timeline);
+        return result;
+    }
+
+    @Override
+    public RefundSatisfaction getRefundSatisfaction(Long refundId) {
+        return refundSatisfactionMapper.selectOne(
+                new LambdaQueryWrapper<RefundSatisfaction>()
+                        .eq(RefundSatisfaction::getRefundId, refundId));
+    }
 
 }

@@ -8,16 +8,22 @@
         ra.order_id,
         ra.user_id,
         ra.reason,
+        ra.reason_category_id,
+        rrc.name AS reason_category_name,
         ra.status,
         ra.remark,
         ra.refund_amount,
         ra.apply_time,
         ra.audit_time,
+        ra.merchant_audit_time,
+        ra.admin_audit_time,
+        ra.refund_time,
         o.order_no,
         u.username
         FROM refund_application ra
         LEFT JOIN `order` o ON ra.order_id = o.id
         LEFT JOIN `user` u ON ra.user_id = u.id
+        LEFT JOIN `refund_reason_category` rrc ON ra.reason_category_id = rrc.id
         <where>
             <if test="queryDTO.status != null">
                 AND ra.status = #{queryDTO.status}
