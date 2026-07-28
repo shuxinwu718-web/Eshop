@@ -26,4 +26,10 @@ public interface EmailService {
      * @param email 邮箱
      */
     void sendResetPasswordCode(String email);
+
+    /**
+     * 发送登录验证码（邮箱免密登录）
+     * @param email 已注册的邮箱
+     */
+    void sendLoginCode(String email);
 }
