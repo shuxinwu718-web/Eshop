@@ -15,6 +15,8 @@ public class MerchantShipmentVO {
     private LocalDateTime orderCreateTime;
     private Integer payStatus;
     private BigDecimal payAmount;
+    private BigDecimal orderTotalAmount;  // 整单总金额
+    private Boolean multiMerchant;        // 是否多商家订单
     private Integer deliveryStatus;
     private String shippingName;
     private String shippingNo;
@@ -40,6 +42,10 @@ public class MerchantShipmentVO {
         private Long productId;
         private String productName;
         private String productImage;
+        /** 选中的SKU ID */
+        private Long skuId;
+        /** 规格组合描述，如"颜色:黑色, 尺码:41" */
+        private String skuSpecs;
         private BigDecimal price;
         private Integer quantity;
         private BigDecimal totalPrice;

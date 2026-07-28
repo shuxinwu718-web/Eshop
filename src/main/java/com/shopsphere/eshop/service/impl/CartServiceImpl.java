@@ -3,9 +3,11 @@ package com.shopsphere.eshop.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shopsphere.eshop.entity.Cart;
 import com.shopsphere.eshop.entity.Product;
+import com.shopsphere.eshop.entity.ProductSku;
 import com.shopsphere.eshop.mapper.CartMapper;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
+import com.shopsphere.eshop.mapper.ProductSkuMapper;
 import com.shopsphere.eshop.service.CartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,11 +21,23 @@ public class CartServiceImpl implements CartService {
 
     private final CartMapper cartMapper;
     private final ProductMapper productMapper;
+    private final ProductSkuMapper productSkuMapper;
 
     @Override
-    public void addToCart(Long userId, Long productId, Integer quantity) {
+    public void addToCart(Long userId, Long productId, Integer quantity, Long skuId) {
+        // 禁止商家购买自家商品
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new BusinessException("商品不存在");
+        }
+        if (product.getMerchantId() != null && product.getMerchantId().equals(userId)) {
+            throw new BusinessException("不能购买自家商品");
+        }
+
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Cart::getUserId, userId).eq(Cart::getProductId, productId);
+        wrapper.eq(Cart::getUserId, userId)
+               .eq(Cart::getProductId, productId)
+               .eq(skuId != null, Cart::getSkuId, skuId);
         Cart existing = cartMapper.selectOne(wrapper);
         if (existing != null) {
             existing.setQuantity(existing.getQuantity() + quantity);
@@ -32,6 +46,14 @@ public class CartServiceImpl implements CartService {
             Cart cart = new Cart();
             cart.setUserId(userId);
             cart.setProductId(productId);
+            cart.setSkuId(skuId);
+            // 设置skuSpecs（描述文字）
+            if (skuId != null) {
+                ProductSku sku = productSkuMapper.selectById(skuId);
+                if (sku != null) {
+                    cart.setSkuSpecs(sku.getSpecs());
+                }
+            }
             cart.setQuantity(quantity);
             cart.setSelected(1);
             cartMapper.insert(cart);
@@ -39,9 +61,11 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
-    public void updateCart(Long userId, Long productId, Integer quantity, Integer selected) {
+    public void updateCart(Long userId, Long productId, Integer quantity, Integer selected, Long skuId) {
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Cart::getUserId, userId).eq(Cart::getProductId, productId);
+        wrapper.eq(Cart::getUserId, userId)
+               .eq(Cart::getProductId, productId)
+               .eq(skuId != null, Cart::getSkuId, skuId);
         Cart cart = cartMapper.selectOne(wrapper);
         if (cart == null) {
             throw new BusinessException("购物车项不存在");
@@ -52,9 +76,11 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
-    public void deleteCartItem(Long userId, Long productId) {
+    public void deleteCartItem(Long userId, Long productId, Long skuId) {
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Cart::getUserId, userId).eq(Cart::getProductId, productId);
+        wrapper.eq(Cart::getUserId, userId)
+               .eq(Cart::getProductId, productId)
+               .eq(skuId != null, Cart::getSkuId, skuId);
         cartMapper.delete(wrapper);
     }
 
@@ -68,9 +94,23 @@ public class CartServiceImpl implements CartService {
             Product product = productMapper.selectById(cart.getProductId());
             if (product != null) {
                 cart.setProductName(product.getName());
-                cart.setProductPrice(product.getPrice());
-                cart.setProductImage(product.getCoverImage());
-                cart.setStock(product.getStock());
+                // 如果选中了SKU，使用SKU的价格和库存
+                if (cart.getSkuId() != null) {
+                    ProductSku sku = productSkuMapper.selectById(cart.getSkuId());
+                    if (sku != null) {
+                        cart.setProductPrice(sku.getPrice());
+                        cart.setStock(sku.getStock());
+                        cart.setProductImage(sku.getImage() != null ? sku.getImage() : product.getCoverImage());
+                    } else {
+                        cart.setProductPrice(product.getPrice());
+                        cart.setStock(product.getStock());
+                        cart.setProductImage(product.getCoverImage());
+                    }
+                } else {
+                    cart.setProductPrice(product.getPrice());
+                    cart.setProductImage(product.getCoverImage());
+                    cart.setStock(product.getStock());
+                }
             }
         }).collect(Collectors.toList());
     }

@@ -33,6 +33,8 @@ public class OrderVO {
     @Data
     public static class OrderItemVO {
         private Long productId;
+        private Long skuId;          // 选中的SKU ID
+        private String skuSpecs;     // 规格组合描述，如"颜色:黑色, 尺码:41"
         private String productName;
         private BigDecimal productPrice;
         private Integer quantity;

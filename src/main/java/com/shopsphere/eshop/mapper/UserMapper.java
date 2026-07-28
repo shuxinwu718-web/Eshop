@@ -33,6 +33,4 @@ public interface UserMapper extends BaseMapper<User> {
     @Select("SELECT COUNT(*) FROM user WHERE deleted = 0 AND create_time < #{endDate}")
     Long selectTotalUserCountBefore(@Param("endDate") java.time.LocalDateTime endDate);
 
-    @Select("SELECT * FROM `user` WHERE github_id = #{githubId} AND deleted = 0")
-    User findByGithubId(String githubId);
 }

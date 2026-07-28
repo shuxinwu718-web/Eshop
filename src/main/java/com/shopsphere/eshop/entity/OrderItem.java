@@ -23,6 +23,12 @@ public class OrderItem {
     @TableField("product_id")
     private Long productId;
 
+    /** 选中的SKU ID，无SKU商品为null */
+    private Long skuId;
+
+    /** 选中的规格组合描述，如"颜色:黑色, 尺码:41" */
+    private String skuSpecs;
+
     @TableField("product_name")
     private String productName;
 

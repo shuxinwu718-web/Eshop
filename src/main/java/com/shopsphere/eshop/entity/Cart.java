@@ -17,6 +17,10 @@ public class Cart {
     @TableField("product_id")
     private Long productId;
 
+    private Long skuId;        // 选中的SKU ID（无规格商品为null）
+
+    private String skuSpecs;   // SKU规格描述，如"颜色:黑色, 尺码:41"
+
     private Integer quantity;
     private Integer selected; // 1-选中 0-未选中
 

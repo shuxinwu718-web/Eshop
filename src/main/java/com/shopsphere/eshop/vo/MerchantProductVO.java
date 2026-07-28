@@ -1,5 +1,7 @@
 package com.shopsphere.eshop.vo;
 
+import com.shopsphere.eshop.entity.ProductSpec;
+import com.shopsphere.eshop.entity.ProductSku;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -18,4 +20,15 @@ public class MerchantProductVO {
     private Integer status;
     private LocalDateTime createTime;
     private List<String> images; // 商品相册图片URL列表
+
+    // ========== 尺寸表数据 ==========
+    private String sizeChartTitle;                         // 尺寸表标题
+    private List<String> sizeChartColumns;                 // 列头定义
+    private List<List<String>> sizeChartRows;              // 行数据
+
+    // ========== 规格模板 ==========
+    private List<ProductSpec> specs;                       // 规格模板列表
+
+    // ========== SKU 列表 ==========
+    private List<ProductSku> skus;                         // SKU 列表
 }

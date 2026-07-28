@@ -23,32 +23,35 @@ public class CartController {
 
     @PostMapping("/add")
     public Result<?> addToCart(@RequestParam Long productId,
+                               @RequestParam(required = false) Long skuId,
                                @RequestHeader("Authorization") String authHeader,
                                @RequestParam(defaultValue = "1") Integer quantity) {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
 
-        cartService.addToCart(userId, productId, quantity);
+        cartService.addToCart(userId, productId, quantity, skuId);
         return Result.success("已添加到购物车");
     }
 
     @PutMapping("/update")
     public Result<?> updateCart(@RequestParam Long productId,
+                                @RequestParam(required = false) Long skuId,
                                 @RequestParam(required = false) Integer quantity,
                                 @RequestHeader("Authorization") String authHeader,
                                 @RequestParam(required = false) Integer selected) {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
-        cartService.updateCart(userId, productId, quantity, selected);
+        cartService.updateCart(userId, productId, quantity, selected, skuId);
         return Result.success("更新成功");
     }
 
     @DeleteMapping("/remove")
     public Result<?> removeFromCart(@RequestParam Long productId,
+        @RequestParam(required = false) Long skuId,
         @RequestHeader("Authorization") String authHeader) {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
-        cartService.deleteCartItem(userId, productId);
+        cartService.deleteCartItem(userId, productId, skuId);
         return Result.success("删除成功");
     }
 

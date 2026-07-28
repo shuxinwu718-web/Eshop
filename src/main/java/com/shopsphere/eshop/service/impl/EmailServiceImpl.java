@@ -102,6 +102,17 @@ public class EmailServiceImpl implements EmailService {
     }
 
 
+    @Override
+    public void sendLoginCode(String email) {
+        // 校验邮箱必须已注册
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getEmail, email);
+        if (userMapper.selectCount(wrapper) == 0) {
+            throw new BusinessException("该邮箱未注册");
+        }
+        sendCodeCommon(email, "login");
+    }
+
     private void sendCodeCommon(String email, String purpose) {
         String code = String.format("%06d", new Random().nextInt(999999));
         String redisKey = "email:code:" + email + ":" + purpose;  // 区分不同用途
@@ -110,7 +121,13 @@ public class EmailServiceImpl implements EmailService {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromEmail);
             message.setTo(email);
-            message.setSubject(purpose.equals("bind") ? "邮箱验证码" : "重置密码验证码");
+            String subject;
+            switch (purpose) {
+                case "login": subject = "登录验证码"; break;
+                case "reset": subject = "重置密码验证码"; break;
+                default: subject = "邮箱验证码";
+            }
+            message.setSubject(subject);
             message.setText("您的验证码是：" + code + "，5分钟内有效。");
             javaMailSender.send(message);
             log.info("{}验证码已发送至 {}", purpose, email);

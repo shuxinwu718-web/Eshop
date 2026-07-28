@@ -19,6 +19,7 @@ public interface OrderService {
     void payOrder(Long orderId, Long userId, BigDecimal actualAmount);
     Page<OrderVO> pageQuery(OrderPageQueryDTO dto, Long userId);
     OrderVO getOrderDetail(Long orderId, Long userId);
+    OrderVO getAdminOrderDetail(Long orderId);
     Page<OrderVO> adminPageQuery(OrderPageQueryDTO dto);
     Page<OrderVO> userPageQuery(OrderPageQueryDTO dto, Long userId);
     void autoCancelExpiredOrders();

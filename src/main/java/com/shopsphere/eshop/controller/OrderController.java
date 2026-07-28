@@ -86,6 +86,12 @@ public class OrderController {
         return Result.success(orderService.adminPageQuery(dto));
     }
 
+    @GetMapping("/admin/{orderId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<OrderVO> adminGetOrderDetail(@PathVariable Long orderId) {
+        return Result.success(orderService.getAdminOrderDetail(orderId));
+    }
+
     @GetMapping("/{orderId}")
     public Result<OrderVO> getOrderDetail(@PathVariable Long orderId,
                                           @RequestHeader(value = "Authorization", required = true) String authHeader) {

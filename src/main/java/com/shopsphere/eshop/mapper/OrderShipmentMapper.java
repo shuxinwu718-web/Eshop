@@ -18,6 +18,11 @@ public interface OrderShipmentMapper extends BaseMapper<OrderShipment> {
     Page<MerchantShipmentVO> selectMerchantShipments(Page<?> page, @Param("sellerId") Long sellerId);
 
     /**
+     * 根据ID列表查询发货单完整信息（避免JOIN分页导致的记录数不准）
+     */
+    List<MerchantShipmentVO> selectShipmentsByIds(@Param("ids") List<Long> ids, @Param("sellerId") Long sellerId);
+
+    /**
      * 查询商家在某订单下的所有发货单详情
      */
     List<MerchantShipmentVO> selectMerchantOrderShipments(@Param("orderId") Long orderId,

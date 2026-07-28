@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @TableName("product")
@@ -32,4 +33,19 @@ public class Product {
 
     @TableField(exist = false)
     private String merchantAvatar;
+
+    @TableField(exist = false)
+    private List<ProductSpec> specs;
+
+    @TableField(exist = false)
+    private List<ProductSku> skus;
+
+    @TableField(exist = false)
+    private String sizeChartTitle;
+
+    @TableField(exist = false)
+    private List<String> sizeChartColumns;
+
+    @TableField(exist = false)
+    private List<List<String>> sizeChartRows;
 }

@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.mapper.*;
+import com.shopsphere.eshop.mapper.ProductSpecMapper;
+import com.shopsphere.eshop.mapper.ProductSkuMapper;
 import com.shopsphere.eshop.service.MerchantApplyService;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.service.OrderShipmentService;
@@ -18,6 +20,7 @@ import com.shopsphere.eshop.vo.MerchantApplyVO;
 import com.shopsphere.eshop.vo.MerchantProductVO;
 import com.shopsphere.eshop.vo.MerchantShipmentVO;
 import com.shopsphere.eshop.vo.MerchantStatisticsVO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -50,6 +53,10 @@ public class MerchantController {
     private final MerchantApplyService merchantApplyService;
     private final MerchantMessageService messageService;
     private final StoreDesignMapper storeDesignMapper;
+    private final ProductSizeChartMapper productSizeChartMapper;
+    private final ProductSpecMapper productSpecMapper;
+    private final ProductSkuMapper productSkuMapper;
+    private final ObjectMapper objectMapper;
 
 
     private Long getMerchantId(String authHeader) {
@@ -121,6 +128,34 @@ public class MerchantController {
         }
         List<String> images = productImageService.getProductImages(product.getId());
         vo.setImages(images);
+
+        // 填充尺寸表数据
+        ProductSizeChart chart = productSizeChartMapper.selectOne(
+                new LambdaQueryWrapper<ProductSizeChart>().eq(ProductSizeChart::getProductId, id));
+        if (chart != null) {
+            vo.setSizeChartTitle(chart.getChartTitle());
+            try {
+                @SuppressWarnings("unchecked")
+                List<String> columns = objectMapper.readValue(chart.getColumnsJson(), List.class);
+                vo.setSizeChartColumns(columns);
+                @SuppressWarnings("unchecked")
+                List<List<String>> rows = objectMapper.readValue(chart.getRowsJson(), List.class);
+                vo.setSizeChartRows(rows);
+            } catch (Exception e) {
+                // ignore parse error
+            }
+        }
+
+        // 填充规格模板
+        vo.setSpecs(productSpecMapper.selectList(
+                new LambdaQueryWrapper<ProductSpec>()
+                        .eq(ProductSpec::getProductId, id)
+                        .orderByAsc(ProductSpec::getSortOrder)));
+
+        // 填充SKU列表
+        vo.setSkus(productSkuMapper.selectList(
+                new LambdaQueryWrapper<ProductSku>()
+                        .eq(ProductSku::getProductId, id)));
 
         return Result.success(vo);
     }
@@ -250,7 +285,7 @@ public class MerchantController {
         Set<Long> allOrderIds = shipments.stream().map(OrderShipment::getOrderId).collect(Collectors.toSet());
         List<Order> orders = orderMapper.selectBatchIds(allOrderIds);
         Set<Long> paidOrderIds = orders.stream()
-                .filter(o -> o.getPayStatus() == 1 && o.getDeleted() == 0)
+                .filter(o -> o.getPayStatus() == 1 && o.getDeleted() == 0 && o.getOrderStatus() != 6)
                 .map(Order::getId)
                 .collect(Collectors.toSet());
         Map<Long, Order> orderMap = orders.stream()

@@ -2,8 +2,6 @@ package com.shopsphere.eshop.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.shopsphere.eshop.entity.Order;
 import com.shopsphere.eshop.entity.OrderShipment;
@@ -17,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,12 +26,25 @@ public class OrderShipmentServiceImpl implements OrderShipmentService {
 
     @Override
     public Page<MerchantShipmentVO> getMerchantShipments(Long sellerId, Integer pageNum, Integer pageSize) {
-        Page<MerchantShipmentVO> page = new Page<>(pageNum, pageSize, false);
-        Page<MerchantShipmentVO> result = orderShipmentMapper.selectMerchantShipments(page, sellerId);
-        Long total = orderShipmentMapper.selectCount(
-                new LambdaQueryWrapper<OrderShipment>().eq(OrderShipment::getSellerId, sellerId)
-        );
-        result.setTotal(total);
+        // 第一步：用简单的单表查询分页获取发货单ID（避免JOIN导致的分页不准确）
+        Page<OrderShipment> idPage = new Page<>(pageNum, pageSize, true);
+        LambdaQueryWrapper<OrderShipment> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderShipment::getSellerId, sellerId)
+               .orderByDesc(OrderShipment::getCreateTime);
+        Page<OrderShipment> shipmentPage = orderShipmentMapper.selectPage(idPage, wrapper);
+
+        Page<MerchantShipmentVO> result = new Page<>(pageNum, pageSize);
+        result.setTotal(shipmentPage.getTotal());
+
+        List<Long> ids = shipmentPage.getRecords().stream()
+                .map(OrderShipment::getId)
+                .collect(Collectors.toList());
+
+        if (!ids.isEmpty()) {
+            List<MerchantShipmentVO> list = orderShipmentMapper.selectShipmentsByIds(ids, sellerId);
+            result.setRecords(list);
+        }
+
         return result;
     }
 

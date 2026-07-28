@@ -197,7 +197,11 @@
       "Bash(grep -n \"getRefundList\\\\|^}$\" /d/idea_workspase/e-shop/src/main/java/com/shopsphere/eshop/service/impl/OrderServiceImpl.java)",
       "Bash(rm sql/V20260724__create_festival_coupon_plan.sql sql/V20260725__create_store_design.sql)",
       "Bash(cp sql/V20260724__refund_system_enhance.sql src/main/resources/db/)",
-      "Bash(rm sql/V20260724__refund_system_enhance.sql)"
+      "Bash(rm sql/V20260724__refund_system_enhance.sql)",
+      "Read(//c/Users/admin/Eshop/src/views/merchant/**)",
+      "Read(//c/Users/admin/Eshop/src/views/**)",
+      "Bash(rm -rf \"D:\\\\idea_workspase\\\\e-shop\\\\.idea\")",
+      "Bash(rm -rf \"D:\\\\idea_workspase\\\\e-shop\\\\*.iml\")"
     ]
   }
 }

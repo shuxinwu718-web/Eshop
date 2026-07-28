@@ -26,23 +26,17 @@ spring:
             enable: true
           socketFactory:
             class: javax.net.ssl.SSLSocketFactory
+  data:
     redis:
       host: localhost
       port: 6379
-      password:  # 如果没有密码则不填
-      database: 0
+      password:
       timeout: 5000ms
       lettuce:
         pool:
           max-active: 8
           max-idle: 8
           min-idle: 0
-oauth2:
-  github:
-    client-id: Ov23litMugT9mWjv5ZLP
-    client-secret: 140f2779ce9df224ff4f2102a2ba2483c45cd184
-    redirect-uri: http://localhost:8080/api/oauth2/github/callback
-  frontend-url: http://localhost:3000
 
 
 # JWT 配置

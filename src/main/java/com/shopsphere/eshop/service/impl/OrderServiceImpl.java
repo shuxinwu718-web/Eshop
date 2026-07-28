@@ -14,8 +14,10 @@ import com.shopsphere.eshop.vo.OrderVO;
 import com.shopsphere.eshop.vo.RefundApplicationVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -41,7 +43,10 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final RefundSatisfactionMapper refundSatisfactionMapper;
     private final RefundReasonCategoryMapper refundReasonCategoryMapper;
+    private final ProductSkuMapper productSkuMapper;
     private final NoticeService noticeService;
+    private final ObjectMapper objectMapper;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Scheduled(cron = "0 */5 * * * ?")
     public void scheduledCancelOrders() {
@@ -92,13 +97,32 @@ public class OrderServiceImpl implements OrderService {
             if (product == null) {
                 throw new BusinessException("商品不存在: " + itemDTO.getProductId());
             }
-            if (product.getStock() < itemDTO.getQuantity()) {
-                throw new BusinessException("商品库存不足: " + product.getName());
+            // 禁止商家购买自家商品
+            if (product.getMerchantId() != null && product.getMerchantId().equals(userId)) {
+                throw new BusinessException("不能购买自家商品");
             }
-            product.setStock(product.getStock() - itemDTO.getQuantity());
-            productMapper.updateById(product);
+            // SKU支持：如果传了skuId，使用SKU的价格和库存
+            ProductSku sku = null;
+            if (itemDTO.getSkuId() != null) {
+                sku = productSkuMapper.selectById(itemDTO.getSkuId());
+                if (sku == null || !sku.getProductId().equals(product.getId())) {
+                    throw new BusinessException("SKU不存在: " + itemDTO.getSkuId());
+                }
+                if (sku.getStock() < itemDTO.getQuantity()) {
+                    throw new BusinessException("商品规格库存不足: " + product.getName());
+                }
+                sku.setStock(sku.getStock() - itemDTO.getQuantity());
+                productSkuMapper.updateById(sku);
+            } else {
+                if (product.getStock() < itemDTO.getQuantity()) {
+                    throw new BusinessException("商品库存不足: " + product.getName());
+                }
+                product.setStock(product.getStock() - itemDTO.getQuantity());
+                productMapper.updateById(product);
+            }
 
-            totalAmount = totalAmount.add(product.getPrice().multiply(BigDecimal.valueOf(itemDTO.getQuantity())));
+            BigDecimal itemPrice = (sku != null) ? sku.getPrice() : product.getPrice();
+            totalAmount = totalAmount.add(itemPrice.multiply(BigDecimal.valueOf(itemDTO.getQuantity())));
 
             itemsBySeller
                     .computeIfAbsent(product.getMerchantId(), k -> new ArrayList<>())
@@ -157,14 +181,36 @@ public class OrderServiceImpl implements OrderService {
             List<OrderItem> orderItems = new ArrayList<>();
             for (OrderCreateDTO.OrderItemDTO itemDTO : sellerItems) {
                 Product product = productMapper.selectById(itemDTO.getProductId());
-                BigDecimal itemTotal = product.getPrice().multiply(BigDecimal.valueOf(itemDTO.getQuantity()));
+                // SKU支持：如果选了SKU，使用SKU的价格
+                BigDecimal itemPrice;
+                String skuSpecs = null;
+                if (itemDTO.getSkuId() != null) {
+                    ProductSku sku = productSkuMapper.selectById(itemDTO.getSkuId());
+                    itemPrice = (sku != null) ? sku.getPrice() : product.getPrice();
+                    if (sku != null && sku.getSpecs() != null) {
+                        try {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> specsMap = objectMapper.readValue(sku.getSpecs(), Map.class);
+                            skuSpecs = specsMap.entrySet().stream()
+                                    .map(e -> e.getKey() + ":" + e.getValue())
+                                    .collect(Collectors.joining(", "));
+                        } catch (Exception e) {
+                            skuSpecs = sku.getSpecs();
+                        }
+                    }
+                } else {
+                    itemPrice = product.getPrice();
+                }
+                BigDecimal itemTotal = itemPrice.multiply(BigDecimal.valueOf(itemDTO.getQuantity()));
                 shipmentAmount = shipmentAmount.add(itemTotal);
 
                 OrderItem orderItem = new OrderItem();
                 orderItem.setProductId(product.getId());
+                orderItem.setSkuId(itemDTO.getSkuId());
+                orderItem.setSkuSpecs(skuSpecs);
                 orderItem.setProductName(product.getName());
                 orderItem.setProductImage(product.getCoverImage());
-                orderItem.setPrice(product.getPrice());
+                orderItem.setPrice(itemPrice);
                 orderItem.setQuantity(itemDTO.getQuantity());
                 orderItems.add(orderItem);
             }
@@ -197,7 +243,27 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 7. 发送新订单通知给商家
+        // 7. 对有SKU的商品，从SKU汇总同步product.stock（下单扣减了SKU库存）
+        Set<Long> syncedProductIds = new HashSet<>();
+        for (OrderCreateDTO.OrderItemDTO itemDTO : items) {
+            if (itemDTO.getSkuId() != null && syncedProductIds.add(itemDTO.getProductId())) {
+                List<ProductSku> skuList = productSkuMapper.selectList(
+                        new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, itemDTO.getProductId()));
+                if (!skuList.isEmpty()) {
+                    int totalStock = skuList.stream()
+                            .filter(s -> s.getStock() != null)
+                            .mapToInt(ProductSku::getStock)
+                            .sum();
+                    Product prod = productMapper.selectById(itemDTO.getProductId());
+                    if (prod != null) {
+                        prod.setStock(totalStock);
+                        productMapper.updateById(prod);
+                    }
+                }
+            }
+        }
+
+        // 8. 发送新订单通知给商家
         for (Long sellerId : itemsBySeller.keySet()) {
             noticeService.createAndPublish(
                     "新订单通知",
@@ -258,21 +324,49 @@ public class OrderServiceImpl implements OrderService {
         order.setCancelTime(LocalDateTime.now());
         orderMapper.updateById(order);
 
-        // 2. 恢复商品库存
-        List<OrderItem> items = orderItemMapper.selectList(
-                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
-        );
-        Set<Long> merchantIds = new HashSet<>();
-        for (OrderItem item : items) {
-            Product product = productMapper.selectById(item.getProductId());
-            if (product != null) {
-                product.setStock(product.getStock() + item.getQuantity());
-                productMapper.updateById(product);
-                merchantIds.add(product.getMerchantId());
-            }
-        }
+        // 2. 恢复商品库存（支持SKU）
+          List<OrderItem> items = orderItemMapper.selectList(
+                  new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
+          );
+          Set<Long> merchantIds = new HashSet<>();
+          Set<Long> affectedProductIds = new HashSet<>();
+          for (OrderItem item : items) {
+              if (item.getSkuId() != null) {
+                  ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+                  if (sku != null) {
+                      sku.setStock(sku.getStock() + item.getQuantity());
+                      productSkuMapper.updateById(sku);
+                  }
+              } else {
+                  Product product = productMapper.selectById(item.getProductId());
+                  if (product != null) {
+                      product.setStock(product.getStock() + item.getQuantity());
+                      productMapper.updateById(product);
+                      merchantIds.add(product.getMerchantId());
+                  }
+              }
+              affectedProductIds.add(item.getProductId());
+          }
+          // 2b. 对有SKU的商品，重新从SKU汇总同步product.stock
+          for (Long pid : affectedProductIds) {
+              List<ProductSku> skuList = productSkuMapper.selectList(
+                      new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
+              if (!skuList.isEmpty()) {
+                  int totalStock = skuList.stream()
+                          .filter(s -> s.getStock() != null)
+                          .mapToInt(ProductSku::getStock)
+                          .sum();
+                  Product p = productMapper.selectById(pid);
+                  if (p != null) {
+                      p.setStock(totalStock);
+                      productMapper.updateById(p);
+                  }
+              }
+              // 清除Redis缓存
+              redisTemplate.delete("product:detail:" + pid);
+          }
 
-        // 3. 归还优惠券
+          // 3. 归还优惠券
         releaseCouponIfAny(order.getOrderNo());
 
         // 4. 发送系统通知（商家）
@@ -332,18 +426,34 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("支付失败，订单状态已变更，请刷新后重试");
         }
 
-        // 4. 支付成功，增加各商品销量，并通知商家
+        // 4. 支付成功，增加各商品销量（支持SKU），并通知商家
         LambdaQueryWrapper<OrderItem> itemQuery = new LambdaQueryWrapper<>();
         itemQuery.eq(OrderItem::getOrderId, orderId);
         List<OrderItem> items = orderItemMapper.selectList(itemQuery);
         Set<Long> paidMerchantIds = new HashSet<>();
         for (OrderItem item : items) {
+            // 更新SKU销量
+            if (item.getSkuId() != null) {
+                ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+                if (sku != null) {
+                    sku.setSales(sku.getSales() == null ? item.getQuantity() : sku.getSales() + item.getQuantity());
+                    productSkuMapper.updateById(sku);
+                }
+            }
+            // 更新商品总销量
             Product product = productMapper.selectById(item.getProductId());
             if (product != null) {
                 product.setSales(product.getSales() == null ? item.getQuantity() : product.getSales() + item.getQuantity());
                 productMapper.updateById(product);
                 paidMerchantIds.add(product.getMerchantId());
             }
+            // 清除 Redis 缓存，下次查询时重新计算销量
+            redisTemplate.delete("product:detail:" + item.getProductId());
+        }
+        // 清除热门商品 Redis 缓存
+        Set<String> hotKeys = redisTemplate.keys("product:hot:*");
+        if (hotKeys != null && !hotKeys.isEmpty()) {
+            redisTemplate.delete(hotKeys);
         }
         for (Long merchantId : paidMerchantIds) {
             noticeService.createAndPublish(
@@ -436,6 +546,15 @@ public class OrderServiceImpl implements OrderService {
         return convertToOrderVO(order);
     }
 
+    @Override
+    public OrderVO getAdminOrderDetail(Long orderId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        return convertToOrderVO(order);
+    }
+
     private OrderVO convertToOrderVO(Order order) {
         OrderVO vo = new OrderVO();
         vo.setId(order.getId());
@@ -484,6 +603,8 @@ public class OrderServiceImpl implements OrderService {
         List<OrderVO.OrderItemVO> itemVOs = items.stream().map(item -> {
             OrderVO.OrderItemVO itemVO = new OrderVO.OrderItemVO();
             itemVO.setProductId(item.getProductId());
+            itemVO.setSkuId(item.getSkuId());
+            itemVO.setSkuSpecs(item.getSkuSpecs());
             itemVO.setProductName(item.getProductName());
             itemVO.setProductPrice(item.getPrice());
             itemVO.setQuantity(item.getQuantity());
@@ -692,44 +813,87 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 执行退款：更新订单状态、恢复库存、记录支付退款
-     */
-    private void executeRefund(Order order, RefundApplication application, Long adminId) {
-        // 1. 订单状态改为已退款
-        order.setOrderStatus(6);
-        orderMapper.updateById(order);
+       * 执行退款：更新订单状态、恢复库存、回退销量、记录支付退款
+       */
+      private void executeRefund(Order order, RefundApplication application, Long adminId) {
+          // 1. 订单状态改为已退款
+          order.setOrderStatus(Order.STATUS_REFUNDED);
+          orderMapper.updateById(order);
 
-        // 2. 恢复库存
-        List<OrderItem> items = orderItemMapper.selectList(
-                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId()));
-        for (OrderItem item : items) {
-            Product product = productMapper.selectById(item.getProductId());
-            if (product != null) {
-                product.setStock(product.getStock() + item.getQuantity());
-                productMapper.updateById(product);
-            }
-        }
+          // 2. 恢复库存 + 回退销量（支持SKU）
+          List<OrderItem> items = orderItemMapper.selectList(
+                  new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId()));
+          Set<Long> affectedProductIds = new HashSet<>();
+          for (OrderItem item : items) {
+              if (item.getSkuId() != null) {
+                  // 有SKU：恢复SKU库存，回退SKU销量
+                  ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+                  if (sku != null) {
+                      sku.setStock(sku.getStock() + item.getQuantity());
+                      sku.setSales(Math.max(0, sku.getSales() - item.getQuantity()));
+                      productSkuMapper.updateById(sku);
+                  }
+              } else {
+                  // 无SKU：直接回退商品库存和销量
+                  Product product = productMapper.selectById(item.getProductId());
+                  if (product != null) {
+                      product.setStock(product.getStock() + item.getQuantity());
+                      product.setSales(Math.max(0, product.getSales() - item.getQuantity()));
+                      productMapper.updateById(product);
+                  }
+              }
+              affectedProductIds.add(item.getProductId());
+          }
 
-        // 3. 更新支付记录状态
-        PaymentRecord payRecord = paymentRecordMapper.selectOne(
-                new LambdaQueryWrapper<PaymentRecord>()
-                        .eq(PaymentRecord::getOrderId, order.getId())
-                        .eq(PaymentRecord::getStatus, 1));
-        if (payRecord != null) {
-            payRecord.setStatus(2);
-            payRecord.setRefundTime(LocalDateTime.now());
-            paymentRecordMapper.updateById(payRecord);
-        }
+          // 2b. 对有SKU的商品，重新从SKU汇总同步product表库存和销量
+          for (Long pid : affectedProductIds) {
+              List<ProductSku> skuList = productSkuMapper.selectList(
+                      new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
+              if (!skuList.isEmpty()) {
+                  int totalStock = skuList.stream()
+                          .filter(s -> s.getStock() != null)
+                          .mapToInt(ProductSku::getStock)
+                          .sum();
+                  int totalSales = skuList.stream()
+                          .filter(s -> s.getSales() != null)
+                          .mapToInt(ProductSku::getSales)
+                          .sum();
+                  Product p = productMapper.selectById(pid);
+                  if (p != null) {
+                      p.setStock(totalStock);
+                      p.setSales(totalSales);
+                      productMapper.updateById(p);
+                  }
+              }
+              // 清除Redis缓存
+              redisTemplate.delete("product:detail:" + pid);
+          }
+          // 清除热门商品Redis缓存
+          Set<String> hotKeys = redisTemplate.keys("product:hot:*");
+          if (hotKeys != null && !hotKeys.isEmpty()) {
+              redisTemplate.delete(hotKeys);
+          }
 
-        // 4. 更新退款申请状态为已退款
-        application.setStatus(RefundApplication.STATUS_REFUNDED);
-        application.setRefundTime(LocalDateTime.now());
-        addProgressLog(application.getId(), "退款完成", "管理员" + adminId, "ADMIN", "退款已执行");
+          // 3. 更新支付记录状态
+          PaymentRecord payRecord = paymentRecordMapper.selectOne(
+                  new LambdaQueryWrapper<PaymentRecord>()
+                          .eq(PaymentRecord::getOrderId, order.getId())
+                          .eq(PaymentRecord::getStatus, 1));
+          if (payRecord != null) {
+              payRecord.setStatus(2);
+              payRecord.setRefundTime(LocalDateTime.now());
+              paymentRecordMapper.updateById(payRecord);
+          }
 
-        // 5. 通知用户
-        notifyUser(order, application, "refund_success", "退款成功",
-                "您的订单 " + order.getOrderNo() + " 已退款 " + application.getRefundAmount() + " 元");
-    }
+          // 4. 更新退款申请状态为已退款
+          application.setStatus(RefundApplication.STATUS_REFUNDED);
+          application.setRefundTime(LocalDateTime.now());
+          addProgressLog(application.getId(), "退款完成", "管理员" + adminId, "ADMIN", "退款已执行");
+
+          // 5. 通知用户
+          notifyUser(order, application, "refund_success", "退款成功",
+                  "您的订单 " + order.getOrderNo() + " 已退款 " + application.getRefundAmount() + " 元");
+      }
 
     /**
      * 归还优惠券：将订单使用的优惠券重置为未使用状态

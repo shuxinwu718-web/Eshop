@@ -9,6 +9,8 @@
         <result property="orderCreateTime" column="order_create_time"/>
         <result property="payStatus" column="pay_status"/>
         <result property="payAmount" column="pay_amount"/>
+        <result property="orderTotalAmount" column="order_total_amount"/>
+        <result property="multiMerchant" column="multi_merchant"/>
         <result property="deliveryStatus" column="delivery_status"/>
         <result property="shippingName" column="shipping_name"/>
         <result property="shippingNo" column="shipping_no"/>
@@ -28,13 +30,15 @@
             <result property="productId" column="product_id"/>
             <result property="productName" column="product_name"/>
             <result property="productImage" column="product_image"/>
+            <result property="skuId" column="sku_id"/>
+            <result property="skuSpecs" column="sku_specs"/>
             <result property="price" column="price"/>
             <result property="quantity" column="quantity"/>
             <result property="totalPrice" column="item_total"/>
         </collection>
     </resultMap>
 
-    <!-- 商家发货单列表（分页） -->
+    <!-- 商家发货单列表（分页）[DEPRECATED: 使用selectShipmentsByIds替代] -->
     <select id="selectMerchantShipments" resultMap="MerchantShipmentVOResultMap">
         SELECT
             os.id,
@@ -43,6 +47,8 @@
             o.create_time AS order_create_time,
             o.pay_status,
             o.pay_amount,
+            o.pay_amount AS order_total_amount,
+            (SELECT COUNT(DISTINCT os2.seller_id) FROM order_shipment os2 WHERE os2.order_id = o.id) > 1 AS multi_merchant,
             os.delivery_status,
             os.shipping_name,
             os.shipping_no,
@@ -58,6 +64,8 @@
             oi.product_id,
             oi.product_name,
             oi.product_image,
+            oi.sku_id,
+            oi.sku_specs,
             oi.price,
             oi.quantity,
             (oi.price * oi.quantity) AS item_total
@@ -69,8 +77,8 @@
         ORDER BY os.create_time DESC
     </select>
 
-    <!-- 商家某订单下的发货单详情 -->
-    <select id="selectMerchantOrderShipments" resultMap="MerchantShipmentVOResultMap">
+    <!-- 根据ID列表查询发货单完整信息（按卖家过滤，防止越权） -->
+    <select id="selectShipmentsByIds" resultMap="MerchantShipmentVOResultMap">
         SELECT
             os.id,
             os.order_id,
@@ -78,6 +86,8 @@
             o.create_time AS order_create_time,
             o.pay_status,
             o.pay_amount,
+            o.pay_amount AS order_total_amount,
+            (SELECT COUNT(DISTINCT os2.seller_id) FROM order_shipment os2 WHERE os2.order_id = o.id) > 1 AS multi_merchant,
             os.delivery_status,
             os.shipping_name,
             os.shipping_no,
@@ -93,6 +103,51 @@
             oi.product_id,
             oi.product_name,
             oi.product_image,
+            oi.sku_id,
+            oi.sku_specs,
+            oi.price,
+            oi.quantity,
+            (oi.price * oi.quantity) AS item_total
+        FROM order_shipment os
+                 INNER JOIN `order` o ON os.order_id = o.id
+                 LEFT JOIN user u ON o.user_id = u.id
+                 INNER JOIN order_item oi ON oi.shipment_id = os.id
+        WHERE os.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND os.seller_id = #{sellerId}
+        ORDER BY os.create_time DESC, oi.id ASC
+    </select>
+
+    <!-- 商家某订单下的发货单详情 -->
+    <select id="selectMerchantOrderShipments" resultMap="MerchantShipmentVOResultMap">
+        SELECT
+            os.id,
+            os.order_id,
+            o.order_no,
+            o.create_time AS order_create_time,
+            o.pay_status,
+            o.pay_amount,
+            o.pay_amount AS order_total_amount,
+            (SELECT COUNT(DISTINCT os2.seller_id) FROM order_shipment os2 WHERE os2.order_id = o.id) > 1 AS multi_merchant,
+            os.delivery_status,
+            os.shipping_name,
+            os.shipping_no,
+            os.shipping_time,
+            os.total_amount AS shipment_amount,
+            o.user_id,
+            u.username,
+            u.phone,
+            o.receiver_name,
+            o.receiver_phone,
+            o.receiver_address,
+            oi.id AS item_id,
+            oi.product_id,
+            oi.product_name,
+            oi.product_image,
+            oi.sku_id,
+            oi.sku_specs,
             oi.price,
             oi.quantity,
             (oi.price * oi.quantity) AS item_total

@@ -12,10 +12,10 @@ import java.time.LocalDateTime;
 @Mapper
 public interface OrderMapper extends BaseMapper<Order> {
 
-    @Select("SELECT COALESCE(SUM(pay_amount), 0) FROM `order` WHERE pay_status = 1 AND deleted = 0")
+    @Select("SELECT COALESCE(SUM(pay_amount), 0) FROM `order` WHERE pay_status = 1 AND deleted = 0 AND order_status != 6")
     BigDecimal selectTotalSales();
 
-    @Select("SELECT COALESCE(SUM(pay_amount), 0) FROM `order` WHERE pay_status = 1 AND deleted = 0 AND create_time >= #{since}")
+    @Select("SELECT COALESCE(SUM(pay_amount), 0) FROM `order` WHERE pay_status = 1 AND deleted = 0 AND order_status != 6 AND create_time >= #{since}")
     BigDecimal selectTodaySales(@Param("since") LocalDateTime since);
 
     @Select("SELECT COUNT(*) FROM `order` WHERE deleted = 0 AND create_time >= #{since}")
@@ -31,7 +31,7 @@ public interface OrderMapper extends BaseMapper<Order> {
     Long selectCancelledOrderCount();
 
     @Select("SELECT DATE(create_time) as date, COALESCE(SUM(pay_amount), 0) as sales, COUNT(*) as cnt " +
-            "FROM `order` WHERE pay_status = 1 AND deleted = 0 " +
+            "FROM `order` WHERE pay_status = 1 AND deleted = 0 AND order_status != 6 " +
             "AND create_time >= #{startDate} AND create_time < #{endDate} " +
             "GROUP BY DATE(create_time) ORDER BY date")
     java.util.List<java.util.Map<String, Object>> selectDailySales(

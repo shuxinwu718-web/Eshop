@@ -18,6 +18,7 @@ public class OrderCreateDTO {
     public static class OrderItemDTO {
         @NotNull(message = "商品ID不能为空")
         private Long productId;
+        private Long skuId;       // 新增：选中的SKU ID（可选，兼容无SKU商品）
         @NotNull(message = "数量不能为空")
         private Integer quantity;
     }
