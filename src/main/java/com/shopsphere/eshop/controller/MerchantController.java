@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.*;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.mapper.ProductSpecMapper;
 import com.shopsphere.eshop.mapper.ProductSkuMapper;
@@ -118,7 +119,7 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         Product product = productMapper.selectById(id);
         if (product == null || !product.getMerchantId().equals(merchantId)) {
-            return Result.error("商品不存在");
+            throw new BusinessException("商品不存在");
         }
 
         MerchantProductVO vo = new MerchantProductVO();
@@ -176,7 +177,7 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
-            return Result.error("商品不存在或无权限修改");
+            throw new BusinessException("商品不存在或无权限修改");
         }
         dto.setId(id);
         productService.updateProduct(dto);
@@ -189,7 +190,7 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
-            return Result.error("商品不存在或无权限删除");
+            throw new BusinessException("商品不存在或无权限删除");
         }
         productService.deleteProduct(id);
         return Result.success("删除成功");
@@ -202,11 +203,11 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
-            return Result.error("商品不存在或无权限操作");
+            throw new BusinessException("商品不存在或无权限操作");
         }
         Integer status = body.get("status");
         if (status == null || (status != 0 && status != 1)) {
-            return Result.error("状态值无效");
+            throw new BusinessException("状态值无效");
         }
         productService.changeStatus(id, status);
         return Result.success("状态更新成功");
@@ -250,10 +251,10 @@ public class MerchantController {
         String shippingNo = body.get("shippingNo");
 
         if (shippingName == null || shippingName.isBlank()) {
-            return Result.error("请输入快递公司");
+            throw new BusinessException("请输入快递公司");
         }
         if (shippingNo == null || shippingNo.isBlank()) {
-            return Result.error("请输入快递单号");
+            throw new BusinessException("请输入快递单号");
         }
 
         orderShipmentService.shipShipment(shipmentId, sellerId, shippingName, shippingNo);
@@ -429,7 +430,7 @@ public class MerchantController {
         Long merchantId = getMerchantId(authHeader);
         String replyContent = body.get("replyContent");
         if (replyContent == null || replyContent.isBlank()) {
-            return Result.error("请输入回复内容");
+            throw new BusinessException("请输入回复内容");
         }
         messageService.replyToMessage(merchantId, id, replyContent);
         return Result.success("回复成功");

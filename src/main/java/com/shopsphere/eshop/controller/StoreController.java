@@ -5,6 +5,7 @@ import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.entity.StoreDesign;
 import com.shopsphere.eshop.entity.User;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.mapper.StoreDesignMapper;
 import com.shopsphere.eshop.mapper.UserMapper;
@@ -29,7 +30,7 @@ public class StoreController {
     public Result<Map<String, Object>> getStoreInfo(@PathVariable Long merchantId) {
         User merchant = userMapper.selectById(merchantId);
         if (merchant == null) {
-            return Result.error("商家不存在");
+            throw new BusinessException("商家不存在");
         }
 
         long productCount = productMapper.selectCount(

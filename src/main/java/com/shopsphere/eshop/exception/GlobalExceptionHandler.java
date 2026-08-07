@@ -87,6 +87,14 @@ public class GlobalExceptionHandler {
         return buildResponse(404, "请求的接口不存在");
     }
 
+    // 7.1 404 未找到（Spring Boot 3.2+：未匹配路径/静态资源统一抛 NoResourceFoundException，避免落入兜底变 500）
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Result<?>> handleNoResourceFoundException(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.warn("接口不存在: {}", ex.getResourcePath());
+        return buildResponse(404, "请求的接口不存在");
+    }
+
     // 8. 自定义业务异常
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<?>> handleBusinessException(BusinessException ex) {

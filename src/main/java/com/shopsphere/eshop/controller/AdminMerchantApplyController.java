@@ -3,6 +3,7 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.AuditRequest;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.service.MerchantApplyService;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,7 +34,7 @@ public class AdminMerchantApplyController {
     public Result<?> auditApply(@PathVariable Long applyId,
                                 @RequestBody AuditRequest request) {
         if (request.getStatus() == null || (request.getStatus() != 1 && request.getStatus() != 2)) {
-            return Result.error("审核状态无效");
+            throw new BusinessException("审核状态无效");
         }
         applyService.auditApply(applyId, request.getStatus(), request.getRemark());
         return Result.success("审核完成");

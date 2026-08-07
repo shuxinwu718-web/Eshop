@@ -3,6 +3,7 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.MerchantMessage;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
@@ -32,7 +33,7 @@ public class MerchantMessageController {
         String content = (String) body.get("content");
 
         if (content == null || content.isBlank()) {
-            return Result.error("请输入留言内容");
+            throw new BusinessException("请输入留言内容");
         }
 
         messageService.sendMessage(userId, productId, content);

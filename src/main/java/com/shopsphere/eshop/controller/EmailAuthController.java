@@ -2,6 +2,7 @@ package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.EmailLoginRequest;
+import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.service.EmailService;
 import com.shopsphere.eshop.service.UserService;
@@ -45,18 +46,18 @@ public class EmailAuthController {
         String redisKey = "email:code:" + request.getEmail() + ":login";
         String cachedCode = redisTemplate.opsForValue().get(redisKey);
         if (cachedCode == null || !cachedCode.equals(request.getCode())) {
-            return Result.error("验证码错误或已过期");
+            throw new BusinessException("验证码错误或已过期");
         }
 
         // 查找用户
         User user = userService.findByEmail(request.getEmail());
         if (user == null) {
-            return Result.error("该邮箱未注册");
+            throw new BusinessException("该邮箱未注册");
         }
 
         // 检查账号状态
         if (user.getStatus() == 1) {
-            return Result.error("账号已被冻结，请联系管理员");
+            throw new BusinessException("账号已被冻结，请联系管理员");
         }
 
         // 删除验证码缓存，防止重复使用

@@ -88,19 +88,20 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public Map<String, String> login(LoginRequest request) {
-        // 验证图形验证码
-        if (StringUtils.hasText(request.getCaptchaKey()) && StringUtils.hasText(request.getCaptchaCode())) {
-            String cacheKey = "captcha:" + request.getCaptchaKey();
-            String cachedCode = redisTemplate.opsForValue().get(cacheKey);
-            if (cachedCode == null) {
-                throw new BusinessException("验证码已过期，请刷新");
-            }
-            if (!cachedCode.equalsIgnoreCase(request.getCaptchaCode())) {
-                throw new BusinessException("验证码错误");
-            }
-            // 验证通过后删除，防止重复使用
-            redisTemplate.delete(cacheKey);
+        // 验证图形验证码（A1 整改：必填强校验，防止不传验证码绕过）
+        if (!StringUtils.hasText(request.getCaptchaKey()) || !StringUtils.hasText(request.getCaptchaCode())) {
+            throw new BusinessException("验证码不能为空");
         }
+        String cacheKey = "captcha:" + request.getCaptchaKey();
+        String cachedCode = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedCode == null) {
+            throw new BusinessException("验证码已过期，请刷新");
+        }
+        if (!cachedCode.equalsIgnoreCase(request.getCaptchaCode())) {
+            throw new BusinessException("验证码错误");
+        }
+        // 验证通过后删除，防止重复使用
+        redisTemplate.delete(cacheKey);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, request.getUsername());
         User user = userMapper.selectOne(wrapper);

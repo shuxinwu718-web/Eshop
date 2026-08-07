@@ -3,6 +3,7 @@ package com.shopsphere.eshop.controller;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
+import com.shopsphere.eshop.exception.BusinessException;
 
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.User;
@@ -119,7 +120,7 @@ public class UserController {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
         User user = userService.getById(userId);
-        if (user == null) return Result.error("用户不存在");
+        if (user == null) throw new BusinessException("用户不存在");
         UserProfileDetail detail = new UserProfileDetail();
         detail.setUserId(user.getId());
         detail.setUsername(user.getUsername());
@@ -146,7 +147,7 @@ public class UserController {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
         User user = userService.getById(userId);
-        if (user == null) return Result.error("用户不存在");
+        if (user == null) throw new BusinessException("用户不存在");
         if (form.getNickname() != null) user.setNickname(form.getNickname());
         if (form.getPhone() != null) user.setPhone(form.getPhone());
         if (form.getEmail() != null) user.setEmail(form.getEmail());
@@ -162,10 +163,10 @@ public class UserController {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
         User user = userService.getById(userId);
-        if (user == null) return Result.error("用户不存在");
+        if (user == null) throw new BusinessException("用户不存在");
 
         if (!passwordEncoder.matches(form.getOldPassword(), user.getPassword())) {
-            return Result.error("原密码错误");
+            throw new BusinessException("原密码错误");
         }
         user.setPassword(passwordEncoder.encode(form.getNewPassword()));
         userService.updateById(user);
@@ -235,9 +236,9 @@ public class UserController {
         String token = tokenUtils.extractToken(authHeader);
         Long userId = jwtUtil.getUserIdFromToken(token);
         User user = userService.getById(userId);
-        if (user == null) return Result.error("用户不存在");
+        if (user == null) throw new BusinessException("用户不存在");
         if (!passwordEncoder.matches(form.getPassword(), user.getPassword())) {
-            return Result.error("密码错误");
+            throw new BusinessException("密码错误");
         }
         user.setEmail(null);
         userService.updateById(user);
@@ -253,13 +254,13 @@ public class UserController {
         String redisKey = "email:code:" + request.getEmail() + ":reset";
         String cachedCode = redisTemplate.opsForValue().get(redisKey);
         if (cachedCode == null || !cachedCode.equals(request.getCode())) {
-            return Result.error("验证码错误或已过期");
+            throw new BusinessException("验证码错误或已过期");
         }
 
         // 2. 查找用户
         User user = userService.findByEmail(request.getEmail());
         if (user == null) {
-            return Result.error("该邮箱未注册");
+            throw new BusinessException("该邮箱未注册");
         }
         // 3. 更新密码
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));

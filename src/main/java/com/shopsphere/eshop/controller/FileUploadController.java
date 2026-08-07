@@ -1,6 +1,8 @@
 package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.exception.BusinessException;
+import com.shopsphere.eshop.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +40,7 @@ public class FileUploadController {
     @PostMapping("")
     public Result<Map<String, String>> uploadFile(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
-            return Result.error("上传文件不能为空");
+            throw new BusinessException("上传文件不能为空");
         }
 
         try {
@@ -53,7 +55,7 @@ public class FileUploadController {
             // 扩展名白名单校验
             if (extension.isEmpty() || !ALLOWED_EXTENSIONS.contains(extension.substring(1))) {
                 log.warn("拒绝上传不支持的文件类型: {}", originalFilename);
-                return Result.error("不支持的文件类型，仅允许图片/文档/压缩包等常见格式");
+                throw new BusinessException("不支持的文件类型，仅允许图片/文档/压缩包等常见格式");
             }
             String newFileName = UUID.randomUUID() + extension;
             Path relativePath = Paths.get(datePath, newFileName);
@@ -71,7 +73,7 @@ public class FileUploadController {
             return Result.success(result);
         } catch (IOException e) {
             log.error("文件上传失败", e);
-            return Result.error("文件上传失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "文件上传失败：" + e.getMessage(), e);
         }
     }
 }
