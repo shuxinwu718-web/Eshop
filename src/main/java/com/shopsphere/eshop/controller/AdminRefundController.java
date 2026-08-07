@@ -3,6 +3,8 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.dto.RefundAuditDTO;
 import com.shopsphere.eshop.dto.RefundQueryDTO;
@@ -18,6 +20,7 @@ import com.shopsphere.eshop.vo.RefundApplicationVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -34,6 +37,7 @@ public class AdminRefundController {
     private final RefundApplicationMapper refundApplicationMapper;
 
     @GetMapping("/list")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MERCHANT')")
     public Result<Page<RefundApplicationVO>> getRefundList(RefundQueryDTO queryDTO) {
         Page<RefundApplicationVO> page = orderService.getRefundList(queryDTO);
         return Result.success(page);
@@ -43,7 +47,8 @@ public class AdminRefundController {
      * 管理员/商户审核退款
      */
     @PutMapping("/audit")
-    @Log(value = "审核退款申请", type = "AUDIT_REFUND", targetType = "Refund")
+    @Log(value = "审核退款申请", type = OperationType.AUDIT_REFUND, targetType = "Refund")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MERCHANT')")
     public Result<?> auditRefund(@RequestBody @Valid RefundAuditDTO dto,
                                  @RequestHeader("Authorization") String authHeader) {
         Long operatorId = getCurrentUserId(authHeader);
@@ -96,6 +101,7 @@ public class AdminRefundController {
      * 查询退款满意度评价（管理员/商户查看用户反馈）
      */
     @GetMapping("/satisfaction/{refundId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MERCHANT')")
     public Result<RefundSatisfaction> getRefundSatisfaction(@PathVariable Long refundId) {
         return Result.success(orderService.getRefundSatisfaction(refundId));
     }

@@ -37,7 +37,7 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate redisTemplate;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final BCryptPasswordEncoder passwordEncoder;
     private final UserCouponService userCouponService;
 
 
@@ -218,11 +218,12 @@ public class UserServiceImpl implements UserService {
         Page<User> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
-            wrapper.like(User::getUsername, keyword)
+            // S8 整改：显式分组，避免 OR 优先级错误导致已注销用户被搜出
+            wrapper.and(w -> w.like(User::getUsername, keyword)
                     .or()
                     .like(User::getPhone, keyword)
                     .or()
-                    .like(User::getEmail, keyword);
+                    .like(User::getEmail, keyword));
         }
         wrapper.eq(User::getDeleted, 0);
         wrapper.orderByDesc(User::getCreateTime);

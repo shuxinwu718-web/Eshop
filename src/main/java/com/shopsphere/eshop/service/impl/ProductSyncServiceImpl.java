@@ -31,12 +31,16 @@ public class ProductSyncServiceImpl implements ProductSyncService {
     @EventListener(ApplicationReadyEvent.class)
     public void syncAllProducts() {
         log.info("开始全量同步商品数据到 Elasticsearch...");
-        List<Product> products = productMapper.selectList(null);
-        List<ProductDocument> documents = products.stream()
-                .map(this::convertToDocument)
-                .collect(Collectors.toList());
-        searchRepository.saveAll(documents);
-        log.info("同步完成，共 {} 条商品数据", documents.size());
+        try {
+            List<Product> products = productMapper.selectList(null);
+            List<ProductDocument> documents = products.stream()
+                    .map(this::convertToDocument)
+                    .collect(Collectors.toList());
+            searchRepository.saveAll(documents);
+            log.info("同步完成，共 {} 条商品数据", documents.size());
+        } catch (Exception e) {
+            log.error("ES 同步失败（应用仍可正常运行）: {}", e.getMessage());
+        }
     }
 
     /**

@@ -12,7 +12,10 @@ import com.shopsphere.eshop.service.CartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,6 +28,9 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public void addToCart(Long userId, Long productId, Integer quantity, Long skuId) {
+        if (quantity == null || quantity < 1) {
+            throw new BusinessException("购买数量必须大于0");
+        }
         // 禁止商家购买自家商品
         Product product = productMapper.selectById(productId);
         if (product == null) {
@@ -62,6 +68,9 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public void updateCart(Long userId, Long productId, Integer quantity, Integer selected, Long skuId) {
+        if (quantity != null && quantity < 1) {
+            throw new BusinessException("购买数量必须大于0");
+        }
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Cart::getUserId, userId)
                .eq(Cart::getProductId, productId)
@@ -89,14 +98,35 @@ public class CartServiceImpl implements CartService {
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Cart::getUserId, userId).orderByDesc(Cart::getCreateTime);
         List<Cart> cartList = cartMapper.selectList(wrapper);
+        if (cartList.isEmpty()) {
+            return cartList;
+        }
+        // Q9 整改：批量查询商品与 SKU，避免逐条 selectById（N+1）
+        List<Long> productIds = cartList.stream()
+                .map(Cart::getProductId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, Product> productMap = productMapper.selectBatchIds(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
+        List<Long> skuIds = cartList.stream()
+                .map(Cart::getSkuId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, ProductSku> skuMap = skuIds.isEmpty() ? Collections.emptyMap()
+                : productSkuMapper.selectBatchIds(skuIds).stream()
+                        .collect(Collectors.toMap(ProductSku::getId, s -> s));
+
         // 填充商品信息
-        return cartList.stream().peek(cart -> {
-            Product product = productMapper.selectById(cart.getProductId());
+        cartList.forEach(cart -> {
+            Product product = productMap.get(cart.getProductId());
             if (product != null) {
                 cart.setProductName(product.getName());
                 // 如果选中了SKU，使用SKU的价格和库存
                 if (cart.getSkuId() != null) {
-                    ProductSku sku = productSkuMapper.selectById(cart.getSkuId());
+                    ProductSku sku = skuMap.get(cart.getSkuId());
                     if (sku != null) {
                         cart.setProductPrice(sku.getPrice());
                         cart.setStock(sku.getStock());
@@ -112,7 +142,8 @@ public class CartServiceImpl implements CartService {
                     cart.setStock(product.getStock());
                 }
             }
-        }).collect(Collectors.toList());
+        });
+        return cartList;
     }
 
     @Override

@@ -259,12 +259,10 @@ public class SeckillServiceImpl implements SeckillService {
 
         // 5. 落库
         try {
-            SeckillSession fresh = seckillSessionMapper.selectById(sessionId);
-            if (fresh.getSeckillStock() <= 0) {
+            // 原子扣减DB库存，防止与 Redis 库存不一致
+            if (seckillSessionMapper.deductStock(sessionId) == 0) {
                 throw new BusinessException("秒杀券已抢完");
             }
-            fresh.setSeckillStock(fresh.getSeckillStock() - 1);
-            seckillSessionMapper.updateById(fresh);
 
             UserCoupon uc = new UserCoupon();
             uc.setUserId(userId);

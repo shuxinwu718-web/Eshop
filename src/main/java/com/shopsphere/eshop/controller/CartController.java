@@ -5,12 +5,15 @@ import com.shopsphere.eshop.service.CartService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import com.shopsphere.eshop.utils.TokenUtils;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Validated
 @RestController
 @RequestMapping("/api/cart")
 @RequiredArgsConstructor
@@ -36,7 +39,7 @@ public class CartController {
     @PutMapping("/update")
     public Result<?> updateCart(@RequestParam Long productId,
                                 @RequestParam(required = false) Long skuId,
-                                @RequestParam(required = false) Integer quantity,
+                                @RequestParam(required = false) @Min(value = 1, message = "购买数量必须大于0") Integer quantity,
                                 @RequestHeader("Authorization") String authHeader,
                                 @RequestParam(required = false) Integer selected) {
         String token = tokenUtils.extractToken(authHeader);

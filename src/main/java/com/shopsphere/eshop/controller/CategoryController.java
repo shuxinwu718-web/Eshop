@@ -2,6 +2,8 @@ package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.entity.Category;
 import com.shopsphere.eshop.service.CategoryService;
 import com.shopsphere.eshop.utils.JwtUtil;
@@ -26,21 +28,21 @@ public class CategoryController {
     }
 
     @PostMapping
-    @Log(value = "添加分类", type = "Add_Category", targetType = "Category")
+    @Log(value = "添加分类", type = OperationType.ADD_CATEGORY, targetType = "Category")
     public Result<?> addCategory(@RequestBody Category category) {
         categoryService.addCategory(category);
         return Result.success("添加成功");
     }
 
     @PutMapping
-    @Log(value = "修改分类", type = "Update_Category", targetType = "Category")
+    @Log(value = "修改分类", type = OperationType.UPDATE_CATEGORY, targetType = "Category")
     public Result<?> updateCategory(@RequestBody Category category) {
         categoryService.updateCategory(category);
         return Result.success("修改成功");
     }
 
     @DeleteMapping("/{id}")
-    @Log(value = "删除分类", type = "Delete_Category", targetType = "Category")
+    @Log(value = "删除分类", type = OperationType.DELETE_CATEGORY, targetType = "Category")
     public Result<?> deleteCategory(@PathVariable Long id) {
         categoryService.deleteCategory(id);
         return Result.success("删除成功");

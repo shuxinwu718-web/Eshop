@@ -2,6 +2,8 @@ package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.service.EmailService;
@@ -25,7 +27,7 @@ public class UserController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final TokenUtils tokenUtils;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final BCryptPasswordEncoder passwordEncoder;
 
     private final EmailService emailService;
     private final RedisTemplate<String, String> redisTemplate;
@@ -53,14 +55,14 @@ public class UserController {
 
     @GetMapping("/admin/page")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "分页查询用户列表", type = "QUERY_USERS", targetType = "User")
+    @Log(value = "分页查询用户列表", type = OperationType.QUERY_USERS, targetType = "User")
     public Result<?> adminPageQuery(UserPageQueryDTO dto) {
         return Result.success(userService.adminPageQuery(dto));
     }
 
     @PostMapping("/admin/freeze/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "冻结用户", type = "FREEZE_USER", targetType = "User")
+    @Log(value = "冻结用户", type = OperationType.FREEZE_USER, targetType = "User")
     public Result<?> freezeUser(@PathVariable Long id) {
         userService.freezeUser(id);
         return Result.success("冻结成功");
@@ -68,7 +70,7 @@ public class UserController {
 
     @PostMapping("/admin/unfreeze/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "解冻用户", type = "UNFREEZE_USER", targetType = "User")
+    @Log(value = "解冻用户", type = OperationType.UNFREEZE_USER, targetType = "User")
     public Result<?> unfreezeUser(@PathVariable Long id) {
         userService.unfreezeUser(id);
         return Result.success("解冻成功");
@@ -76,14 +78,14 @@ public class UserController {
 
     @GetMapping("/admin/online")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "查看在线用户", type = "VIEW_ONLINE_USERS", targetType = "User")
+    @Log(value = "查看在线用户", type = OperationType.VIEW_ONLINE_USERS, targetType = "User")
     public Result<?> getOnlineUsers() {
         return Result.success(onlineUserService.getOnlineUsers());
     }
 
     @PostMapping("/admin/kick/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "强制下线", type = "KICK_USER", targetType = "User")
+    @Log(value = "强制下线", type = OperationType.KICK_USER, targetType = "User")
     public Result<?> kickUser(@PathVariable Long id) {
         onlineUserService.kickUser(id);
         return Result.success("已强制该用户下线");
@@ -91,7 +93,7 @@ public class UserController {
 
     @GetMapping("/admin/search")
     @PreAuthorize("hasRole('ADMIN')")
-    @Log(value = "搜索用户", type = "SEARCH_USERS", targetType = "User")
+    @Log(value = "搜索用户", type = OperationType.SEARCH_USERS, targetType = "User")
     public Result<?> searchUsers(@RequestParam String keyword,
                                  @RequestParam(defaultValue = "1") Integer pageNum,
                                  @RequestParam(defaultValue = "10") Integer pageSize) {
@@ -262,8 +264,8 @@ public class UserController {
         // 3. 更新密码
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userService.updateById(user);
-        // 4. 删除验证码缓存（防止重复使用）
-        redisTemplate.delete("email:code:" + request.getEmail());
+        // 4. 删除验证码缓存（防止重复使用），key 需与发送时保持一致（含 :reset 后缀）
+        redisTemplate.delete("email:code:" + request.getEmail() + ":reset");
         return Result.success("密码重置成功");
     }
 

@@ -36,12 +36,12 @@ public class SecurityConfig {
                                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                         // 商品 GET 放行
                         .requestMatchers(HttpMethod.GET, "/api/product/**").permitAll()
-                        // 文件上传 放行
-                        .requestMatchers("/api/v1/files/**").permitAll()
+                        // 文件上传 需要登录（防止匿名上传恶意文件）
+                        .requestMatchers("/api/v1/files/**").authenticated()
                         // 访问记录 放行
                         .requestMatchers("/api/v1/logs/views/**").permitAll()
-                        // 收藏 放行
-                        .requestMatchers("/api/favorite/**").permitAll()
+                        // 收藏 需要登录（按用户操作）
+                        .requestMatchers("/api/favorite/**").authenticated()
                         // 秒杀 放行（用户端）
                         .requestMatchers("/api/seckill/sessions").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/seckill/*").authenticated()

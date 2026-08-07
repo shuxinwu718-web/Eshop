@@ -125,10 +125,7 @@ public class UserCouponServiceImpl implements UserCouponService {
         if (obtainType != null && obtainType != 0) {
             throw new BusinessException("该优惠券不能直接领取");
         }
-        if (coupon.getStock() <= 0) {
-            throw new BusinessException("优惠券已抢完");
-        }
-        // 检查领取上限
+        // 先检查领取上限（用户未达上限才允许扣库存）
         LambdaQueryWrapper<UserCoupon> countWrapper = new LambdaQueryWrapper<>();
         countWrapper.eq(UserCoupon::getUserId, userId)
                 .eq(UserCoupon::getCouponId, couponId);
@@ -136,9 +133,10 @@ public class UserCouponServiceImpl implements UserCouponService {
         if (count >= coupon.getLimitPerUser()) {
             throw new BusinessException("您已达到领取上限");
         }
-        // 减库存
-        coupon.setStock(coupon.getStock() - 1);
-        couponMapper.updateById(coupon);
+        // 原子扣减库存：仅当库存充足时扣减成功，防止并发超发
+        if (couponMapper.deductStock(couponId) == 0) {
+            throw new BusinessException("优惠券已抢完");
+        }
         // 发放用户券
         UserCoupon uc = new UserCoupon();
         uc.setUserId(userId);

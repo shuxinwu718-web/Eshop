@@ -1,6 +1,8 @@
 package com.shopsphere.eshop.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -15,8 +17,10 @@ public class ProductSaveDTO {
     private Long merchantId; //商家id
     private List<String> images; // 商品相册图片URL列表（按顺序）
     @NotNull(message = "价格不能为空")
+    @DecimalMin(value = "0.01", message = "价格必须大于0")
     private BigDecimal price;
     @NotNull(message = "库存不能为空")
+    @Min(value = 0, message = "库存不能为负数")
     private Integer stock;
     private String description;
     private String coverImage;

@@ -4,6 +4,7 @@ import com.shopsphere.eshop.common.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -91,6 +92,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<?>> handleBusinessException(BusinessException ex) {
         log.warn("业务异常: {}", ex.getMessage());
         return buildResponse(ex.getHttpStatus(), ex.getMessage());
+    }
+
+    // 8.1 权限不足（@PreAuthorize 拒绝时返回 403，避免被 RuntimeException 兜底成 500）
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Result<?>> handleAccessDeniedException(AccessDeniedException ex) {
+        log.warn("权限不足: {}", ex.getMessage());
+        return buildResponse(403, "权限不足，无法访问该资源");
     }
 
     // 9. 未捕获的 RuntimeException（兜底）

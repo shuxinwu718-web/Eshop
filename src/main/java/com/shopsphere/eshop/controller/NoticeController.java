@@ -3,6 +3,8 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.dto.NoticeFormDTO;
 import com.shopsphere.eshop.dto.NoticeQueryDTO;
 import com.shopsphere.eshop.service.NoticeService;
@@ -12,6 +14,7 @@ import com.shopsphere.eshop.vo.NoticeVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
@@ -33,17 +36,20 @@ public class NoticeController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<Page<NoticeVO>> getPage(NoticeQueryDTO dto) {
         return Result.success(noticeService.getNoticePage(dto));
     }
 
     @GetMapping("/{id}/form")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<NoticeFormDTO> getFormData(@PathVariable Long id) {
         return Result.success(noticeService.getFormData(id));
     }
 
     @PostMapping
-    @Log(value = "发布通知", type = "PUBLISH_NOTICE", targetType = "Notice")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "发布通知", type = OperationType.PUBLISH_NOTICE, targetType = "Notice")
     public Result<?> create(
             @RequestBody @Valid NoticeFormDTO dto,
             @RequestHeader(value = "Authorization", required = true) String authHeader) {
@@ -58,6 +64,7 @@ public class NoticeController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<?> update(@PathVariable Long id, @RequestBody @Valid NoticeFormDTO dto) {
         dto.setId(id);
         noticeService.updateNotice(dto);
@@ -65,19 +72,22 @@ public class NoticeController {
     }
 
     @DeleteMapping("/{ids}")
-    @Log(value = "撤回通知", type = "Delete_NOTICE", targetType = "Notice")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Log(value = "撤回通知", type = OperationType.DELETE_NOTICE, targetType = "Notice")
     public Result<?> delete(@PathVariable String ids) {
         noticeService.deleteByIds(ids);
         return Result.success("删除成功");
     }
 
     @PutMapping("/{id}/publish")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<?> publish(@PathVariable Long id) {
         noticeService.publishNotice(id);
         return Result.success("发布成功");
     }
 
     @PutMapping("/{id}/revoke")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<?> revoke(@PathVariable Long id) {
         noticeService.revokeNotice(id);
         return Result.success("撤回成功");

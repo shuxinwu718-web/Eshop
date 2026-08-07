@@ -3,17 +3,21 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.dto.SeckillSessionSaveDTO;
 import com.shopsphere.eshop.entity.SeckillSession;
 import com.shopsphere.eshop.service.SeckillService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/admin/seckill")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "管理员秒杀卷活动管理", description = "限时秒券等活动接口")
 public class AdminSeckillController {
 
@@ -35,35 +39,35 @@ public class AdminSeckillController {
     }
 
     @PostMapping
-    @Log(value = "新增秒杀场次", type = "ADD_SECKILL_SESSION", targetType = "SeckillSession")
+    @Log(value = "新增秒杀场次", type = OperationType.ADD_SECKILL_SESSION, targetType = "SeckillSession")
     public Result<?> create(@Valid @RequestBody SeckillSessionSaveDTO dto) {
         seckillService.create(dto);
         return Result.success("创建成功");
     }
 
     @PutMapping
-    @Log(value = "修改秒杀场次", type = "UPDATE_SECKILL_SESSION", targetType = "SeckillSession")
+    @Log(value = "修改秒杀场次", type = OperationType.UPDATE_SECKILL_SESSION, targetType = "SeckillSession")
     public Result<?> update(@Valid @RequestBody SeckillSessionSaveDTO dto) {
         seckillService.update(dto);
         return Result.success("修改成功");
     }
 
     @DeleteMapping("/{id}")
-    @Log(value = "删除秒杀场次", type = "DELETE_SECKILL_SESSION", targetType = "SeckillSession")
+    @Log(value = "删除秒杀场次", type = OperationType.DELETE_SECKILL_SESSION, targetType = "SeckillSession")
     public Result<?> delete(@PathVariable Long id) {
         seckillService.delete(id);
         return Result.success("删除成功");
     }
 
     @PutMapping("/cancel/{id}")
-    @Log(value = "撤销秒杀场次", type = "CANCEL_SECKILL_SESSION", targetType = "SeckillSession")
+    @Log(value = "撤销秒杀场次", type = OperationType.CANCEL_SECKILL_SESSION, targetType = "SeckillSession")
     public Result<?> cancel(@PathVariable Long id) {
         seckillService.cancel(id);
         return Result.success("已撤销");
     }
 
     @PostMapping("/preheat/{id}")
-    @Log(value = "预热秒杀库存", type = "PREHEAT_SECKILL", targetType = "SeckillSession")
+    @Log(value = "预热秒杀库存", type = OperationType.PREHEAT_SECKILL, targetType = "SeckillSession")
     public Result<?> preheat(@PathVariable Long id) {
         seckillService.preheatStock(id);
         return Result.success("预热成功");

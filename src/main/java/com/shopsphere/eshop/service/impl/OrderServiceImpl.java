@@ -108,17 +108,15 @@ public class OrderServiceImpl implements OrderService {
                 if (sku == null || !sku.getProductId().equals(product.getId())) {
                     throw new BusinessException("SKU不存在: " + itemDTO.getSkuId());
                 }
-                if (sku.getStock() < itemDTO.getQuantity()) {
+                // 原子扣减SKU库存，防止并发超卖
+                if (productSkuMapper.deductStock(sku.getId(), itemDTO.getQuantity()) == 0) {
                     throw new BusinessException("商品规格库存不足: " + product.getName());
                 }
-                sku.setStock(sku.getStock() - itemDTO.getQuantity());
-                productSkuMapper.updateById(sku);
             } else {
-                if (product.getStock() < itemDTO.getQuantity()) {
+                // 原子扣减商品库存，防止并发超卖
+                if (productMapper.deductStock(product.getId(), itemDTO.getQuantity()) == 0) {
                     throw new BusinessException("商品库存不足: " + product.getName());
                 }
-                product.setStock(product.getStock() - itemDTO.getQuantity());
-                productMapper.updateById(product);
             }
 
             BigDecimal itemPrice = (sku != null) ? sku.getPrice() : product.getPrice();
@@ -136,6 +134,10 @@ public class OrderServiceImpl implements OrderService {
         // 3.处理优惠券（如果用户选中了）
         if (dto.getUserCouponId() != null) {
             UserCoupon userCoupon = userCouponMapper.selectById(dto.getUserCouponId());
+            // 越权校验：优惠券必须属于当前用户
+            if (userCoupon != null && !userCoupon.getUserId().equals(userId)) {
+                throw new BusinessException("优惠券不属于当前用户");
+            }
             if (userCoupon != null && userCoupon.getStatus() == 0) {
                 Coupon coupon = couponMapper.selectById(userCoupon.getCouponId());
                 if (coupon != null && coupon.getStatus() == 1) {

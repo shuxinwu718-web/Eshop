@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.SeckillSessionStatus;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shopsphere.eshop.entity.Coupon;
 import com.shopsphere.eshop.entity.SeckillSession;

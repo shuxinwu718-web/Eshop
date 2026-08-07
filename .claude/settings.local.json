@@ -201,7 +201,29 @@
       "Read(//c/Users/admin/Eshop/src/views/merchant/**)",
       "Read(//c/Users/admin/Eshop/src/views/**)",
       "Bash(rm -rf \"D:\\\\idea_workspase\\\\e-shop\\\\.idea\")",
-      "Bash(rm -rf \"D:\\\\idea_workspase\\\\e-shop\\\\*.iml\")"
+      "Bash(rm -rf \"D:\\\\idea_workspase\\\\e-shop\\\\*.iml\")",
+      "Bash(mvn -q compile -DskipTests)",
+      "Bash(pnpm type-check *)",
+      "Bash(sed -n '35,42p' src/views/demo/curd-single.vue)",
+      "Bash(sed -n '38,44p' src/views/demo/curd/index.vue)",
+      "Bash(sed -n '15,22p' src/views/demo/table-select/index.vue)",
+      "Bash(sed -n '50,58p;108,115p' src/views/eshop/merchantApply/index.vue)",
+      "Bash(sed -n '40,50p;95,102p;130,138p' src/views/eshop/refund/index.vue)",
+      "Bash(sed -n '38,45p' src/views/shop/applyMerchant/index.vue)",
+      "Bash(sed -n '97,101p' src/views/eshop/refund/index.vue)",
+      "Bash(sed -n '40,44p' src/views/shop/applyMerchant/index.vue)",
+      "Bash(sed -n '45,55p' src/views/eshop/category/index.vue)",
+      "Bash(sed -n '90,100p' src/views/eshop/product/index.vue)",
+      "Bash(sed -n '190,200p' src/views/eshop/address/index.vue)",
+      "Bash(sed -n '452,465p' src/views/shop/center/index.vue)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(export JAVA_HOME=\"D:\\\\\\\\jdk-23.0.2\")",
+      "Bash(mvn -v)",
+      "Bash(mvn spring-boot:run)",
+      "Bash(tasklist //FI \"PID eq 27688\")",
+      "Bash(wmic process *)",
+      "Bash(awk '{print $5, $9}')"
     ]
   }
 }

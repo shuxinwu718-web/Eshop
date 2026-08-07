@@ -22,6 +22,7 @@ import com.shopsphere.eshop.vo.MerchantShipmentVO;
 import com.shopsphere.eshop.vo.MerchantStatisticsVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
@@ -170,7 +171,7 @@ public class MerchantController {
 
     @PutMapping("/product/{id}")
     public Result<?> updateProduct(@PathVariable Long id,
-                                   @RequestBody ProductSaveDTO dto,
+                                   @Valid @RequestBody ProductSaveDTO dto,
                                    @RequestHeader("Authorization") String authHeader) {
         Long merchantId = getMerchantId(authHeader);
         Product existing = productMapper.selectById(id);

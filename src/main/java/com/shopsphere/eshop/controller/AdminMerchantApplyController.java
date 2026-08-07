@@ -7,10 +7,12 @@ import com.shopsphere.eshop.service.MerchantApplyService;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/admin/merchant")
+@PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "管理员对商家资格的申请", description = "商家入驻审核表的CRUD")
 public class AdminMerchantApplyController {
 

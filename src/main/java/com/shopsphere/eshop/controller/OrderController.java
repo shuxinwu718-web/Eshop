@@ -3,6 +3,8 @@ package com.shopsphere.eshop.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
+import com.shopsphere.eshop.constant.OperationType;
+
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.utils.JwtUtil;
@@ -34,7 +36,7 @@ public class OrderController {
 
 
     @PutMapping("/cancel/{orderId}")
-    @Log(value = "取消订单", type = "Cancle_Order", targetType = "Order")
+    @Log(value = "取消订单", type = OperationType.CANCEL_ORDER, targetType = "Order")
     public Result<?> cancelOrder(@PathVariable Long orderId,
                                  @RequestHeader(value = "Authorization", required = true) String authHeader) {
         String token = tokenUtils.extractToken(authHeader);

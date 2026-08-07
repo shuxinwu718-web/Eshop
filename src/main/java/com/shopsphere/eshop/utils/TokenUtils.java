@@ -24,41 +24,12 @@ public class TokenUtils {
         return token;
     }
 
-
     /**
      * 从 HttpServletRequest 中提取 Token
      */
     public String extractTokenFromRequest(jakarta.servlet.http.HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         return extractToken(authHeader);
-    }
-
-    /**
-     * 验证 Authorization Header
-     */
-    private void validateAuthorizationHeader(String authorizationHeader) {
-        if (!StringUtils.hasText(authorizationHeader)) {
-            throw new IllegalArgumentException("Authorization 头为空");
-        }
-    }
-
-    /**
-     * 验证 Token
-     */
-    private void validateToken(String token) {
-        if (StringUtils.isEmpty(token)) {
-            throw new IllegalArgumentException("Token 为空");
-        }
-    }
-
-    /**
-     * 脱敏显示 Token
-     */
-    private String maskToken(String token) {
-        if (token.length() <= 20) {
-            return token;
-        }
-        return token.substring(0, 20) + "...";
     }
 
 }

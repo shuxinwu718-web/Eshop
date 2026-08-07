@@ -14,7 +14,9 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -22,6 +24,13 @@ import java.util.UUID;
 @RequestMapping("/api/v1/files")
 @Tag(name = "文件上传管理", description = "负责文件上传的位置")
 public class FileUploadController {
+
+    /** 允许上传的文件扩展名白名单（防止上传恶意脚本文件） */
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+            "txt", "zip", "rar", "mp4", "mp3", "wav"
+    );
 
     @Value("${spring.file.upload-dir:./uploads}")
     private String uploadDir;
@@ -39,7 +48,12 @@ public class FileUploadController {
             String originalFilename = file.getOriginalFilename();
             String extension = "";
             if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+                extension = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase(Locale.ROOT);
+            }
+            // 扩展名白名单校验
+            if (extension.isEmpty() || !ALLOWED_EXTENSIONS.contains(extension.substring(1))) {
+                log.warn("拒绝上传不支持的文件类型: {}", originalFilename);
+                return Result.error("不支持的文件类型，仅允许图片/文档/压缩包等常见格式");
             }
             String newFileName = UUID.randomUUID() + extension;
             Path relativePath = Paths.get(datePath, newFileName);
