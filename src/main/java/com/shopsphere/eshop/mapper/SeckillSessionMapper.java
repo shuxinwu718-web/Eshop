@@ -16,4 +16,10 @@ public interface SeckillSessionMapper extends BaseMapper<SeckillSession> {
      */
     @Update("UPDATE seckill_session SET seckill_stock = seckill_stock - 1 WHERE id = #{id} AND seckill_stock > 0")
     int deductStock(@Param("id") Long id);
+
+    /**
+     * 回滚秒杀DB库存（订单超时取消/退款时释放库存）
+     */
+    @Update("UPDATE seckill_session SET seckill_stock = seckill_stock + #{qty} WHERE id = #{id}")
+    int addStock(@Param("id") Long id, @Param("qty") Integer qty);
 }

@@ -64,10 +64,19 @@ public class ActivityController {
 
     /**
      * 获取进行中的节日活动（含用户签到进度）
+     * 游客（未登录）也可浏览，已领取状态视为未领取
      */
     @GetMapping("/festival-coupons")
-    public Result<List<FestivalCouponVO>> getFestivalCoupons(@RequestHeader("Authorization") String authHeader) {
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+    public Result<List<FestivalCouponVO>> getFestivalCoupons(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            try {
+                userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+            } catch (Exception ignored) {
+                userId = null;
+            }
+        }
         return Result.success(activityService.getFestivalCoupons(userId));
     }
 

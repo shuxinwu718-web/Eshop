@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -44,9 +45,11 @@ public class OrderServiceImpl implements OrderService {
     private final RefundSatisfactionMapper refundSatisfactionMapper;
     private final RefundReasonCategoryMapper refundReasonCategoryMapper;
     private final ProductSkuMapper productSkuMapper;
+    private final SeckillSessionMapper seckillSessionMapper;
     private final NoticeService noticeService;
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Scheduled(cron = "0 */5 * * * ?")
     public void scheduledCancelOrders() {
@@ -370,6 +373,15 @@ public class OrderServiceImpl implements OrderService {
 
           // 3. 归还优惠券
         releaseCouponIfAny(order.getOrderNo());
+
+        // 3b. 秒杀商品订单：回滚秒杀场次库存与 Redis 数据（释放库存供再次抢购）
+        if (order.getSeckillSessionId() != null) {
+            Long sid = order.getSeckillSessionId();
+            seckillSessionMapper.addStock(sid, 1);
+            stringRedisTemplate.opsForValue().increment(SeckillServiceImpl.STOCK_KEY + sid);
+            stringRedisTemplate.opsForSet().remove(SeckillServiceImpl.USERS_KEY + sid, String.valueOf(order.getUserId()));
+            log.info("秒杀订单取消，已回滚秒杀库存 sessionId={}, orderId={}", sid, order.getId());
+        }
 
         // 4. 发送系统通知（商家）
         for (Long merchantId : merchantIds) {

@@ -21,5 +21,13 @@ public interface SeckillService {
 
     void preheatStock(Long id);
 
-    void seckill(Long sessionId, Long userId);
+    /**
+     * 参与秒杀
+     *
+     * @param sessionId 场次ID
+     * @param userId    用户ID
+     * @param addressId 收货地址ID（秒杀商品模式必填，秒杀券模式忽略）
+     * @return 秒杀商品模式下返回生成的订单ID；秒杀券模式返回 null
+     */
+    Long seckill(Long sessionId, Long userId, Long addressId);
 }

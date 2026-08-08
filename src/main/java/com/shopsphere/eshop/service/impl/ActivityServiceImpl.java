@@ -236,19 +236,25 @@ public class ActivityServiceImpl implements ActivityService {
         List<Coupon> coupons = couponMapper.selectBatchIds(couponIds);
         Map<Long, Coupon> couponMap = coupons.stream().collect(Collectors.toMap(Coupon::getId, c -> c));
 
-        // 获取用户连续签到天数
-        Map<String, Object> status = getSignInStatus(userId);
-        int consecutiveDays = (int) status.get("consecutiveDays");
+        // 获取用户连续签到天数（游客为 0）
+        int consecutiveDays = 0;
+        if (userId != null) {
+            Map<String, Object> status = getSignInStatus(userId);
+            consecutiveDays = (int) status.get("consecutiveDays");
+        }
 
-        // 查询用户已领取的奖励（含常规签到和节日活动）
+        // 查询用户已领取的奖励（含常规签到和节日活动，游客视为未领取）
         Map<Long, Boolean> claimedMap = new HashMap<>();
         for (FestivalCouponPlan plan : plans) {
-            long count = signinRewardMapper.selectCount(
-                    new LambdaQueryWrapper<UserSigninReward>()
-                            .eq(UserSigninReward::getUserId, userId)
-                            .eq(UserSigninReward::getRewardId, plan.getCouponId())
-                            .in(UserSigninReward::getRewardType, 1, 2)
-            );
+            long count = 0;
+            if (userId != null) {
+                count = signinRewardMapper.selectCount(
+                        new LambdaQueryWrapper<UserSigninReward>()
+                                .eq(UserSigninReward::getUserId, userId)
+                                .eq(UserSigninReward::getRewardId, plan.getCouponId())
+                                .in(UserSigninReward::getRewardType, 1, 2)
+                );
+            }
             claimedMap.put(plan.getId(), count > 0);
         }
 

@@ -34,6 +34,10 @@ public class Order {
 
     private Integer type;
 
+    /** 秒杀场次ID（秒杀商品订单来源标记，取消/退款时用于回滚秒杀库存） */
+    @TableField("seckill_session_id")
+    private Long seckillSessionId;
+
     @TableField("pay_status")
     private Integer payStatus;
 

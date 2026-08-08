@@ -36,6 +36,12 @@ public class SecurityConfig {
                                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                         // 商品 GET 放行
                         .requestMatchers(HttpMethod.GET, "/api/product/**").permitAll()
+                        // 游客浏览：分类树、小店公开信息、优惠券列表、节日券活动、商品评论列表
+                        .requestMatchers(HttpMethod.GET, "/api/category/**",
+                                "/api/merchant/*/store",
+                                "/api/user/coupons/available",
+                                "/api/user/activities/festival-coupons",
+                                "/api/comments/product/**").permitAll()
                         // 文件上传 需要登录（防止匿名上传恶意文件）
                         .requestMatchers("/api/v1/files/**").authenticated()
                         // 访问记录 放行
