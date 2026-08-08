@@ -8,6 +8,7 @@ import com.shopsphere.eshop.service.ProductSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -23,13 +24,18 @@ public class ProductSyncServiceImpl implements ProductSyncService {
 
 
     private final ProductMapper productMapper;
-    private final ProductSearchRepository searchRepository;
+    private final ObjectProvider<ProductSearchRepository> searchRepositoryProvider;
 
     /**
      * 项目启动后自动执行全量同步（开发阶段方便）
      */
     @EventListener(ApplicationReadyEvent.class)
     public void syncAllProducts() {
+        ProductSearchRepository searchRepository = searchRepositoryProvider.getIfAvailable();
+        if (searchRepository == null) {
+            log.info("Elasticsearch 未启用，跳过全量商品同步");
+            return;
+        }
         log.info("开始全量同步商品数据到 Elasticsearch...");
         try {
             List<Product> products = productMapper.selectList(null);
@@ -47,17 +53,33 @@ public class ProductSyncServiceImpl implements ProductSyncService {
      * 增量同步：新增或更新商品时调用
      */
     public void syncOneProduct(Product product) {
-        ProductDocument document = convertToDocument(product);
-        searchRepository.save(document);
-        log.info("同步单个商品到 ES，id={}", product.getId());
+        ProductSearchRepository searchRepository = searchRepositoryProvider.getIfAvailable();
+        if (searchRepository == null) {
+            return; // ES 未启用，跳过同步（不影响 MySQL 侧业务）
+        }
+        try {
+            ProductDocument document = convertToDocument(product);
+            searchRepository.save(document);
+            log.info("同步单个商品到 ES，id={}", product.getId());
+        } catch (Exception e) {
+            log.error("同步商品到 ES 失败（已忽略）: {}", e.getMessage());
+        }
     }
 
     /**
      * 删除商品时从 ES 中删除
      */
     public void deleteProduct(Long productId) {
-        searchRepository.deleteById(productId);
-        log.info("从 ES 中删除商品，id={}", productId);
+        ProductSearchRepository searchRepository = searchRepositoryProvider.getIfAvailable();
+        if (searchRepository == null) {
+            return; // ES 未启用，跳过删除
+        }
+        try {
+            searchRepository.deleteById(productId);
+            log.info("从 ES 中删除商品，id={}", productId);
+        } catch (Exception e) {
+            log.error("从 ES 删除商品失败（已忽略）: {}", e.getMessage());
+        }
     }
 
     private ProductDocument convertToDocument(Product product) {

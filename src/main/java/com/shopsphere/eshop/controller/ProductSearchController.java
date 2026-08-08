@@ -4,13 +4,20 @@ import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders;
 import co.elastic.clients.json.JsonData;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.document.ProductDocument;
+import com.shopsphere.eshop.dto.ProductPageQueryDTO;
 import com.shopsphere.eshop.entity.Category;
+import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.CategoryMapper;
+import com.shopsphere.eshop.service.ProductService;
 import com.shopsphere.eshop.service.ProductSyncService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
@@ -21,7 +28,9 @@ import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -29,12 +38,18 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/product/es")
 @RequiredArgsConstructor
+@Slf4j
 @Tag(name = "商品搜索管理", description = "拼音搜索、排序搜索")
 public class ProductSearchController {
 
     private final ElasticsearchTemplate esTemplate;
     private final ProductSyncService productSyncService;
     private final CategoryMapper categoryMapper;
+    private final ProductService productService;
+
+    /** Elasticsearch 开关：false 直接走 MySQL 降级搜索 */
+    @Value("${elasticsearch.enabled:false}")
+    private boolean esEnabled;
 
     @GetMapping("/search")
     public Result<ProductSearchVO> search(
@@ -47,6 +62,23 @@ public class ProductSearchController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "relevant") String sortBy) {
 
+        // 1. 开关关闭：直接走 MySQL 降级（避免等 ES 连接超时）
+        if (!esEnabled) {
+            return Result.success(searchFromDb(keyword, categoryId, minPrice, maxPrice, status, page, size, sortBy));
+        }
+
+        try {
+            return Result.success(searchFromEs(keyword, categoryId, minPrice, maxPrice, status, page, size, sortBy));
+        } catch (Exception e) {
+            log.warn("ES 搜索失败，降级 MySQL: {}", e.getMessage());
+            return Result.success(searchFromDb(keyword, categoryId, minPrice, maxPrice, status, page, size, sortBy));
+        }
+    }
+
+    // ====== ES 查询（原有逻辑） ======
+
+    private ProductSearchVO searchFromEs(String keyword, Long categoryId, Double minPrice, Double maxPrice,
+                                         Integer status, int page, int size, String sortBy) {
         // 构建 bool 查询
         BoolQuery.Builder boolBuilder = QueryBuilders.bool();
 
@@ -127,11 +159,53 @@ public class ProductSearchController {
                 })
                 .collect(Collectors.toList()));
 
-        return Result.success(vo);
+        return vo;
+    }
+
+    // ====== MySQL 降级查询（返回与 ES 同构的 ProductSearchVO，前端无感知） ======
+
+    private ProductSearchVO searchFromDb(String keyword, Long categoryId, Double minPrice, Double maxPrice,
+                                         Integer status, int page, int size, String sortBy) {
+        ProductPageQueryDTO dto = new ProductPageQueryDTO();
+        dto.setPageNum(page + 1);
+        dto.setPageSize(size);
+        dto.setName(keyword);
+        dto.setCategoryId(categoryId);
+        dto.setStatus(status != null ? status : 1);
+        dto.setMinPrice(minPrice);
+        dto.setMaxPrice(maxPrice);
+        dto.setSortBy(sortBy);
+
+        Page<Product> result = productService.pageQuery(dto);
+        ProductSearchVO vo = new ProductSearchVO();
+        vo.setTotal(result.getTotal());
+        vo.setList(result.getRecords().stream().map(p -> {
+            SearchResultItem item = new SearchResultItem();
+            item.setProduct(convertToDocument(p));
+            item.setHighlights(new HashMap<>()); // 降级无高亮
+            return item;
+        }).collect(Collectors.toList()));
+        return vo;
+    }
+
+    /** Product → ProductDocument（与 ES 文档同构，createTime 转 epoch） */
+    private ProductDocument convertToDocument(Product p) {
+        ProductDocument doc = new ProductDocument();
+        BeanUtils.copyProperties(p, doc);
+        if (p.getCreateTime() != null) {
+            doc.setCreateTime(p.getCreateTime().toInstant(ZoneOffset.ofHours(8)).toEpochMilli());
+        }
+        if (p.getNamePinyin() != null) {
+            doc.setNamePinyin(p.getNamePinyin().replace(" ", ""));
+        }
+        return doc;
     }
 
     @PostMapping("/reindex")
     public Result<String> reindex() {
+        if (!esEnabled) {
+            return Result.success("ES 未启用，无需重建索引");
+        }
         productSyncService.syncAllProducts();
         return Result.success("全量同步触发成功");
     }

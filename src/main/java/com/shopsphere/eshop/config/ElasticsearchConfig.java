@@ -7,10 +7,12 @@ import co.elastic.clients.transport.rest_client.RestClientTransport;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@ConditionalOnProperty(name = "elasticsearch.enabled", havingValue = "true")
 public class ElasticsearchConfig {
 
     @Value("${spring.elasticsearch.uris:http://localhost:9200}")

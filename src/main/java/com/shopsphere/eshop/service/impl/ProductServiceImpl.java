@@ -255,7 +255,23 @@ public class ProductServiceImpl implements ProductService {
         if (dto.getStatus() != null) {
             wrapper.eq(Product::getStatus, dto.getStatus());
         }
-        wrapper.orderByDesc(Product::getCreateTime);
+        // 价格范围过滤（ES 降级搜索用）
+        if (dto.getMinPrice() != null) {
+            wrapper.ge(Product::getPrice, dto.getMinPrice());
+        }
+        if (dto.getMaxPrice() != null) {
+            wrapper.le(Product::getPrice, dto.getMaxPrice());
+        }
+        // 排序（ES 降级搜索用）
+        if ("price_asc".equals(dto.getSortBy())) {
+            wrapper.orderByAsc(Product::getPrice);
+        } else if ("price_desc".equals(dto.getSortBy())) {
+            wrapper.orderByDesc(Product::getPrice);
+        } else if ("sales".equals(dto.getSortBy())) {
+            wrapper.orderByDesc(Product::getSales);
+        } else {
+            wrapper.orderByDesc(Product::getCreateTime);   // 现有默认：最新
+        }
         return productMapper.selectPage(page, wrapper);
     }
 
