@@ -3,6 +3,17 @@
 > 基于 Spring Boot 3 的单体电商后端，为前端仓库 [Eshop_front](https://github.com/shuxinwu718-web/Eshop_front) 提供 REST API。
 > 覆盖用户商城、商家中心、管理后台三类业务，内置拼团、秒杀、退款、优惠券、AI 客服（SSE）等完整电商能力。
 
+## 项目仓库导航
+
+| 项目 | 仓库地址 |
+|------|----------|
+| 🖥️ **前端（本项目）** | [Eshop_front](https://github.com/shuxinwu718-web/Eshop_front) |
+| ☕ **后端（Java）** | [Eshop](https://github.com/shuxinwu718-web/Eshop) |
+| 🐍 **AI 客服服务（Python）** | [ai-customer-service](https://github.com/shuxinwu718-web/ai-customer-service) |
+
+> 包含**用户商城（shop）**、**商家中心（merchant）**、**系统管理（system）** 三端，以及拼团、秒杀、优惠券、AI 客服等特色功能。
+
+
 ## 技术栈
 
 | 类别 | 技术 |
