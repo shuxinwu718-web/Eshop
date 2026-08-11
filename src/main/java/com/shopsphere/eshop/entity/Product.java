@@ -20,6 +20,7 @@ public class Product {
     private String coverImage;
     private Integer status;  // 0-下架 1-上架
     private Integer sales;   // 销量
+    private Integer views;   // 浏览量（Redis 计数，定时落库）
     private String namePinyin; // 商品名称拼音（用于拼音搜索）
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

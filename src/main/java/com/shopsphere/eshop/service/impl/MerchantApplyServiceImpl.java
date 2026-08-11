@@ -9,6 +9,7 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.MerchantApplyMapper;
 import com.shopsphere.eshop.mapper.UserMapper;
 import com.shopsphere.eshop.service.MerchantApplyService;
+import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -22,6 +23,7 @@ public class MerchantApplyServiceImpl implements MerchantApplyService {
 
     private final MerchantApplyMapper applyMapper;
     private final UserMapper userMapper;
+    private final NoticeService noticeService;
 
     @Override
     public void submitApply(Long userId, MerchantApplySubmitDTO dto) {
@@ -61,12 +63,28 @@ public class MerchantApplyServiceImpl implements MerchantApplyService {
         apply.setRemark(remark);
         applyMapper.updateById(apply);
 
-        if (status == 1) { // 审核通过，修改用户角色为 MERCHANT
+        if (status == 1) { // 审核通过，修改用户角色为 MERCHANT，并通知商家
             User user = userMapper.selectById(apply.getUserId());
             if (user != null && !"MERCHANT".equals(user.getRole())) {
                 user.setRole("MERCHANT");
                 userMapper.updateById(user);
             }
+            noticeService.createAndPublish(
+                    "商家入驻审核通过",
+                    "恭喜！您的商家入驻申请已审核通过，请重新登录后进入商家中心管理商品。",
+                    0, // 系统公告
+                    apply.getUserId(),
+                    "merchant_apply",
+                    applyId);
+        } else { // 审核拒绝，通知商家
+            String reason = (remark != null && !remark.isBlank()) ? "，原因：" + remark : "";
+            noticeService.createAndPublish(
+                    "商家入驻审核未通过",
+                    "很抱歉，您的商家入驻申请未通过审核" + reason + "，您可以完善资料后重新申请。",
+                    0, // 系统公告
+                    apply.getUserId(),
+                    "merchant_apply",
+                    applyId);
         }
     }
 

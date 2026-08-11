@@ -1,5 +1,6 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.service.OnlineUserService;
 import com.shopsphere.eshop.utils.JwtUtil;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,12 +35,10 @@ public class SseController {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     @GetMapping(value = "/connect", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter connect(@RequestParam String token) {
+    public SseEmitter connect(@RequestParam String token, @CurrentUserId Long userId) {
         // 验证 token
-        Long userId;
         String username;
         try {
-            userId = jwtUtil.getUserIdFromToken(token);
             username = jwtUtil.getUsernameFromToken(token);
         } catch (Exception e) {
             log.warn("SSE 连接 token 验证失败: {}", e.getMessage());

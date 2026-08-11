@@ -25,6 +25,10 @@ public interface ProductMapper extends BaseMapper<Product> {
     @Update("UPDATE product SET stock = stock - #{qty} WHERE id = #{id} AND stock >= #{qty} AND deleted = 0")
     int deductStock(@Param("id") Long id, @Param("qty") Integer qty);
 
+    /** 更新浏览量（Redis 计数定时落库时调用） */
+    @Update("UPDATE product SET views = #{views} WHERE id = #{id} AND deleted = 0")
+    int updateViews(@Param("id") Long id, @Param("views") Integer views);
+
     @Select("SELECT p.id, p.name, p.price, p.cover_image AS coverImage, p.description, " +
            "COALESCE(SUM(CASE WHEN o.order_status >= 1 AND o.order_status < 4 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
            "ROUND(COALESCE(AVG(pc.rating), 0), 1) AS avgRating " +

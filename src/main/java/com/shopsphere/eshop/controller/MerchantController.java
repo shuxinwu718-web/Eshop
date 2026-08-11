@@ -2,6 +2,7 @@ package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
@@ -13,8 +14,6 @@ import com.shopsphere.eshop.service.MerchantMessageService;
 import com.shopsphere.eshop.service.OrderShipmentService;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.dto.StoreDesignDTO;
 import com.shopsphere.eshop.vo.MerchantApplyVO;
@@ -26,6 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -49,8 +49,6 @@ public class MerchantController {
     private final ProductImageService productImageService;
     private final OrderShipmentMapper orderShipmentMapper;
     private final OrderMapper orderMapper;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
 
     private final MerchantApplyService merchantApplyService;
     private final MerchantMessageService messageService;
@@ -59,11 +57,11 @@ public class MerchantController {
     private final ProductSpecMapper productSpecMapper;
     private final ProductSkuMapper productSkuMapper;
     private final ObjectMapper objectMapper;
+    private final StringRedisTemplate stringRedisTemplate;
 
-
-    private Long getMerchantId(String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        return jwtUtil.getUserIdFromToken(token);
+    /** 清除小店信息缓存（店铺设计变更后调用，key 与 StoreController 保持一致） */
+    private void evictStoreInfoCache(Long merchantId) {
+        stringRedisTemplate.delete(StoreController.CACHE_KEY_PREFIX + merchantId);
     }
 
     // ==================== 商品管理 ====================
@@ -74,8 +72,7 @@ public class MerchantController {
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+            @CurrentUserId Long merchantId) {
 
         Page<Product> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
@@ -115,8 +112,7 @@ public class MerchantController {
 
     @GetMapping("/product/{id}")
     public Result<MerchantProductVO> getProductDetail(@PathVariable Long id,
-                                                       @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                                       @CurrentUserId Long merchantId) {
         Product product = productMapper.selectById(id);
         if (product == null || !product.getMerchantId().equals(merchantId)) {
             throw new BusinessException("商品不存在");
@@ -164,8 +160,8 @@ public class MerchantController {
 
     @PostMapping("/product")
     public Result<?> createProduct(@RequestBody ProductSaveDTO dto,
-                                   @RequestHeader("Authorization") String authHeader) {
-        dto.setMerchantId(getMerchantId(authHeader));
+                                   @CurrentUserId Long merchantId) {
+        dto.setMerchantId(merchantId);
         productService.addProduct(dto);
         return Result.success("添加成功");
     }
@@ -173,8 +169,7 @@ public class MerchantController {
     @PutMapping("/product/{id}")
     public Result<?> updateProduct(@PathVariable Long id,
                                    @Valid @RequestBody ProductSaveDTO dto,
-                                   @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                   @CurrentUserId Long merchantId) {
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
             throw new BusinessException("商品不存在或无权限修改");
@@ -186,8 +181,7 @@ public class MerchantController {
 
     @DeleteMapping("/product/{id}")
     public Result<?> deleteProduct(@PathVariable Long id,
-                                   @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                   @CurrentUserId Long merchantId) {
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
             throw new BusinessException("商品不存在或无权限删除");
@@ -199,8 +193,7 @@ public class MerchantController {
     @PatchMapping("/product/{id}/status")
     public Result<?> updateProductStatus(@PathVariable Long id,
                                          @RequestBody Map<String, Integer> body,
-                                         @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                         @CurrentUserId Long merchantId) {
         Product existing = productMapper.selectById(id);
         if (existing == null || !existing.getMerchantId().equals(merchantId)) {
             throw new BusinessException("商品不存在或无权限操作");
@@ -222,8 +215,7 @@ public class MerchantController {
     public Result<Page<MerchantShipmentVO>> getShipments(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+            @CurrentUserId Long merchantId) {
         Page<MerchantShipmentVO> page = orderShipmentService.getMerchantShipments(merchantId, pageNum, pageSize);
         return Result.success(page);
     }
@@ -234,8 +226,7 @@ public class MerchantController {
     @GetMapping("/order/{orderId}")
     public Result<java.util.List<MerchantShipmentVO>> getOrderDetail(
             @PathVariable Long orderId,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+            @CurrentUserId Long merchantId) {
         return Result.success(orderShipmentService.getMerchantOrderShipments(orderId, merchantId));
     }
 
@@ -245,8 +236,7 @@ public class MerchantController {
     @PutMapping("/shipment/{shipmentId}/ship")
     public Result<?> shipShipment(@PathVariable Long shipmentId,
                                    @RequestBody Map<String, String> body,
-                                   @RequestHeader("Authorization") String authHeader) {
-        Long sellerId = getMerchantId(authHeader);
+                                   @CurrentUserId Long sellerId) {
         String shippingName = body.get("shippingName");
         String shippingNo = body.get("shippingNo");
 
@@ -266,8 +256,7 @@ public class MerchantController {
     @GetMapping("/statistics")
     public Result<MerchantStatisticsVO> getStatistics(
             @RequestParam(defaultValue = "30") Integer days,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+            @CurrentUserId Long merchantId) {
 
         // 查询该商家的所有发货单
         List<OrderShipment> shipments = orderShipmentMapper.selectList(
@@ -348,8 +337,7 @@ public class MerchantController {
     // ==================== 小店设计 ====================
 
     @GetMapping("/store-design")
-    public Result<StoreDesign> getStoreDesign(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+    public Result<StoreDesign> getStoreDesign(@CurrentUserId Long merchantId) {
         StoreDesign design = storeDesignMapper.selectOne(
                 new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
         if (design == null) {
@@ -362,8 +350,7 @@ public class MerchantController {
 
     @PutMapping("/store-design")
     public Result<?> updateStoreDesign(@RequestBody StoreDesignDTO dto,
-                                       @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                       @CurrentUserId Long merchantId) {
         StoreDesign design = storeDesignMapper.selectOne(
                 new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
         if (design == null) {
@@ -377,24 +364,26 @@ public class MerchantController {
             design.setBannerUrl(dto.getBannerUrl());
             storeDesignMapper.updateById(design);
         }
+        // 店铺信息变更，清除小店信息缓存
+        evictStoreInfoCache(merchantId);
         return Result.success("保存成功");
     }
 
     @DeleteMapping("/store-design/avatar")
-    public Result<?> deleteStoreAvatar(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+    public Result<?> deleteStoreAvatar(@CurrentUserId Long merchantId) {
         StoreDesign design = storeDesignMapper.selectOne(
                 new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
         if (design != null) {
             design.setBannerUrl(null);
             storeDesignMapper.updateById(design);
+            // 头像变更，清除小店信息缓存
+            evictStoreInfoCache(merchantId);
         }
         return Result.success("头像已删除");
     }
 
     @GetMapping("/product-sales")
-    public Result<?> getProductSales(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+    public Result<?> getProductSales(@CurrentUserId Long merchantId) {
         return Result.success(productService.getProductSalesByMerchant(merchantId));
     }
 
@@ -404,21 +393,18 @@ public class MerchantController {
     public Result<Page<MerchantMessage>> getMessages(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "20") Integer pageSize,
-            @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+            @CurrentUserId Long merchantId) {
         return Result.success(messageService.getMessages(merchantId, pageNum, pageSize));
     }
 
     @GetMapping("/messages/unread-count")
-    public Result<Long> getMessageUnreadCount(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+    public Result<Long> getMessageUnreadCount(@CurrentUserId Long merchantId) {
         return Result.success(messageService.getUnreadCount(merchantId));
     }
 
     @PutMapping("/messages/{id}/read")
     public Result<?> markMessageRead(@PathVariable Long id,
-                                     @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                     @CurrentUserId Long merchantId) {
         messageService.markAsRead(merchantId, id);
         return Result.success("操作成功");
     }
@@ -426,8 +412,7 @@ public class MerchantController {
     @PutMapping("/messages/{id}/reply")
     public Result<?> replyToMessage(@PathVariable Long id,
                                     @RequestBody Map<String, String> body,
-                                    @RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+                                    @CurrentUserId Long merchantId) {
         String replyContent = body.get("replyContent");
         if (replyContent == null || replyContent.isBlank()) {
             throw new BusinessException("请输入回复内容");
@@ -443,8 +428,7 @@ public class MerchantController {
      * 商家查看自己的入驻申请信息
      */
     @GetMapping("/my-apply")
-    public Result<MerchantApplyVO> getMyApply(@RequestHeader("Authorization") String authHeader) {
-        Long merchantId = getMerchantId(authHeader);
+    public Result<MerchantApplyVO> getMyApply(@CurrentUserId Long merchantId) {
         MerchantApplyVO vo = merchantApplyService.getMyApply(merchantId);
         return Result.success(vo);
     }

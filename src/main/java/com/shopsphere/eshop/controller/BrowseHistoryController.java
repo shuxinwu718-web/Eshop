@@ -1,11 +1,10 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.service.BrowseHistoryService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,22 +22,16 @@ import java.util.stream.Collectors;
 public class BrowseHistoryController {
     private final BrowseHistoryService historyService;
     private final ProductMapper productMapper;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
     @PostMapping
     public Result<?> addHistory(@RequestParam Long productId,
-                                @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                @CurrentUserId Long userId) {
         historyService.addHistory(userId, productId);
         return Result.success(null);
     }
 
     @GetMapping
     public Result<List<Product>> getHistory(@RequestParam(defaultValue = "10") int limit,
-                                            @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                            @CurrentUserId Long userId) {
         List<Long> productIds = historyService.getRecentProductIds(userId, limit);
         if (productIds.isEmpty()) {
             return Result.success(List.of());
@@ -55,9 +48,7 @@ public class BrowseHistoryController {
     }
 
     @DeleteMapping
-    public Result<?> clearHistory(@RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<?> clearHistory(@CurrentUserId Long userId) {
         historyService.clearHistory(userId);
         return Result.success(null);
     }

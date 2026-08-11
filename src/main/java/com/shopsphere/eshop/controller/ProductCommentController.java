@@ -1,14 +1,13 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.CommentQueryDTO;
 import com.shopsphere.eshop.dto.CommentReplyDTO;
 import com.shopsphere.eshop.dto.CommentSaveDTO;
 import com.shopsphere.eshop.entity.ProductComment;
 import com.shopsphere.eshop.service.ProductCommentService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.ProductCommentVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -25,18 +24,11 @@ import java.util.List;
 public class ProductCommentController {
 
     private final ProductCommentService commentService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
-    private Long getCurrentUserId(@RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        return jwtUtil.getUserIdFromToken(token);
-    }
 
     // 用户发表评论
     @PostMapping
     public Result<?> addComment(@Valid @RequestBody CommentSaveDTO dto,
-                                @RequestHeader("Authorization") String authHeader) {
-        Long userId = getCurrentUserId(authHeader);
+                                @CurrentUserId Long userId) {
         commentService.addComment(dto, userId);
         return Result.success("评论成功");
     }
@@ -44,8 +36,7 @@ public class ProductCommentController {
     // 回复评论
     @PostMapping("/reply")
     public Result<?> replyComment(@Valid @RequestBody CommentReplyDTO dto,
-                                  @RequestHeader("Authorization") String authHeader) {
-        Long userId = getCurrentUserId(authHeader);
+                                  @CurrentUserId Long userId) {
         commentService.replyComment(dto, userId);
         return Result.success("回复成功");
     }
@@ -53,8 +44,7 @@ public class ProductCommentController {
     // 删除评论（用户删自己的，管理员可删任何）
     @DeleteMapping("/{commentId}")
     public Result<?> deleteComment(@PathVariable Long commentId,
-                                   @RequestHeader("Authorization") String authHeader) {
-        Long userId = getCurrentUserId(authHeader);
+                                   @CurrentUserId Long userId) {
         // 判断是否是管理员（可通过 role 判断，这里简化：从 token 获取角色，需要扩展 JwtUtil）
         // 为了代码完整，假设有 isAdmin 方法
         boolean isAdmin = false; // 实际需要从 token 或数据库中获取角色

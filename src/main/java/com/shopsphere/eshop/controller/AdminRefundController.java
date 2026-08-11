@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
@@ -14,8 +15,6 @@ import com.shopsphere.eshop.entity.RefundProgressLog;
 import com.shopsphere.eshop.entity.RefundSatisfaction;
 import com.shopsphere.eshop.mapper.RefundApplicationMapper;
 import com.shopsphere.eshop.service.OrderService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.RefundApplicationVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,8 +31,6 @@ import java.util.List;
 public class AdminRefundController {
 
     private final OrderService orderService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
     private final RefundApplicationMapper refundApplicationMapper;
 
     @GetMapping("/list")
@@ -50,8 +47,7 @@ public class AdminRefundController {
     @Log(value = "审核退款申请", type = OperationType.AUDIT_REFUND, targetType = "Refund")
     @PreAuthorize("hasAnyRole('ADMIN', 'MERCHANT')")
     public Result<?> auditRefund(@RequestBody @Valid RefundAuditDTO dto,
-                                 @RequestHeader("Authorization") String authHeader) {
-        Long operatorId = getCurrentUserId(authHeader);
+                                 @CurrentUserId Long operatorId) {
         // 前端未传 operatorRole 时，根据退款当前状态推断角色
         if (dto.getOperatorRole() == null) {
             RefundApplication app = refundApplicationMapper.selectById(dto.getRefundId());
@@ -81,8 +77,7 @@ public class AdminRefundController {
      */
     @GetMapping("/stats/{refundId}")
     public Result<?> getRefundStats(@PathVariable Long refundId,
-                                    @RequestHeader("Authorization") String authHeader) {
-        Long userId = getCurrentUserId(authHeader);
+                                    @CurrentUserId Long userId) {
         return Result.success(orderService.getRefundStats(userId, refundId));
     }
 
@@ -91,8 +86,7 @@ public class AdminRefundController {
      */
     @PostMapping("/satisfaction")
     public Result<?> submitSatisfaction(@RequestBody @Valid RefundSatisfactionSubmitDTO dto,
-                                         @RequestHeader("Authorization") String authHeader) {
-        Long userId = getCurrentUserId(authHeader);
+                                         @CurrentUserId Long userId) {
         orderService.submitSatisfaction(userId, dto.getRefundId(), dto.getRating(), dto.getFeedback());
         return Result.success("评价成功");
     }
@@ -104,10 +98,5 @@ public class AdminRefundController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MERCHANT')")
     public Result<RefundSatisfaction> getRefundSatisfaction(@PathVariable Long refundId) {
         return Result.success(orderService.getRefundSatisfaction(refundId));
-    }
-
-    private Long getCurrentUserId(String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        return jwtUtil.getUserIdFromToken(token);
     }
 }

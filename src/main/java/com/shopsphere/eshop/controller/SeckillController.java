@@ -1,8 +1,11 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.SeckillSessionStatus;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shopsphere.eshop.dto.SeckillBuyDTO;
 import com.shopsphere.eshop.entity.Coupon;
 import com.shopsphere.eshop.entity.Product;
@@ -13,8 +16,6 @@ import com.shopsphere.eshop.mapper.CouponMapper;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.mapper.UserCouponMapper;
 import com.shopsphere.eshop.service.SeckillService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.SeckillSessionVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,29 +40,26 @@ public class SeckillController {
     private static final String STOCK_KEY = "seckill:stock:";
     private static final String RATE_KEY = "seckill:rate:";
     private static final String USERS_KEY = "seckill:users:";
+    /** 活跃场次列表缓存 key（与 SeckillServiceImpl 保持一致） */
+    public static final String SESSIONS_CACHE_KEY = "seckill:sessions";
+    /** 场次列表缓存 TTL：短缓存，保证管理端增删改后快速可见 */
+    private static final long SESSIONS_CACHE_TTL_SECONDS = 30;
 
     private final SeckillService seckillService;
     private final CouponMapper couponMapper;
     private final UserCouponMapper userCouponMapper;
     private final ProductMapper productMapper;
     private final StringRedisTemplate stringRedisTemplate;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
+    private final ObjectMapper objectMapper;
     private final HttpServletRequest request;
 
     @GetMapping("/sessions")
-    public Result<List<SeckillSessionVO>> getSessions() {
-        List<SeckillSession> all = seckillService.pageQuery(null, null, null, 1, 200).getRecords();
-        List<SeckillSession> active = all.stream()
-                .filter(s -> s.getStatus() == 0 || s.getStatus() == 1)
-                .collect(Collectors.toList());
+    public Result<List<SeckillSessionVO>> getSessions(@CurrentUserId Long userId) {
+        List<SeckillSession> active = getActiveSessionsFromCache();
 
         if (active.isEmpty()) {
             return Result.success(Collections.emptyList());
         }
-
-        // 当前登录用户（未登录或 token 解析失败时为 null）
-        final Long currentUserId = parseCurrentUserId(request);
 
         // 批量查询优惠券名称（仅秒券场次）
         List<Long> couponIds = active.stream()
@@ -128,9 +126,9 @@ public class SeckillController {
             }
 
             // 当前用户是否已抢购/领取（未登录时为 false）
-            if (currentUserId != null) {
+            if (userId != null) {
                 Boolean member = stringRedisTemplate.opsForSet()
-                        .isMember(USERS_KEY + s.getId(), String.valueOf(currentUserId));
+                        .isMember(USERS_KEY + s.getId(), String.valueOf(userId));
                 vo.setIsSeckilled(Boolean.TRUE.equals(member));
             }
 
@@ -143,7 +141,7 @@ public class SeckillController {
     @PostMapping("/{sessionId}")
     public Result<?> seckill(@PathVariable Long sessionId,
                              @RequestBody(required = false) SeckillBuyDTO body,
-                             @RequestHeader("Authorization") String authHeader) {
+                             @CurrentUserId Long userId) {
         // IP 频率限制：每 IP 每 10 秒最多 5 次
         String ip = request.getRemoteAddr();
         String rateKey = RATE_KEY + "ip:" + ip;
@@ -155,8 +153,6 @@ public class SeckillController {
         if (ipCount > 5) {
             throw new BusinessException("操作太频繁，请稍后再试");
         }
-
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
 
         // 用户频率限制：每用户每 2 秒最多 1 次
         String userRateKey = RATE_KEY + "user:" + userId;
@@ -174,16 +170,32 @@ public class SeckillController {
         return Result.success(orderId != null ? orderId : "抢购成功");
     }
 
-    /** 从 Authorization 头解析当前用户ID，未登录或解析失败返回 null */
-    private Long parseCurrentUserId(HttpServletRequest request) {
-        String authHeader = request.getHeader("Authorization");
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return null;
+    /**
+     * 读取活跃场次列表：优先走缓存（30s短TTL），未命中查DB并回填缓存。
+     * 缓存只存"活跃场次基础信息"，优惠券名/商品信息/实时库存/用户状态仍在方法内实时聚合，
+     * 保证每个字段都是最新值。
+     */
+    private List<SeckillSession> getActiveSessionsFromCache() {
+        String cached = stringRedisTemplate.opsForValue().get(SESSIONS_CACHE_KEY);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached, new TypeReference<List<SeckillSession>>() {
+                });
+            } catch (Exception e) {
+                // 反序列化失败回源DB
+            }
         }
+
+        List<SeckillSession> all = seckillService.pageQuery(null, null, null, 1, 200).getRecords();
+        List<SeckillSession> active = all.stream()
+                .filter(s -> s.getStatus() == 0 || s.getStatus() == 1)
+                .collect(Collectors.toList());
         try {
-            return jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
-        } catch (Exception ignored) {
-            return null;
+            stringRedisTemplate.opsForValue().set(SESSIONS_CACHE_KEY,
+                    objectMapper.writeValueAsString(active), SESSIONS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // 缓存写入失败不影响本次返回
         }
+        return active;
     }
 }

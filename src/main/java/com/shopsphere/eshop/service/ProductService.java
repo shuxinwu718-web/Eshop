@@ -20,4 +20,11 @@ public interface ProductService {
     void batchUpdatePinyin();
     List<HotProductVO> getHotProducts(int limit);
     List<ProductSalesVO> getProductSalesByMerchant(Long merchantId);
+
+    /**
+     * 商品浏览量 +1（Redis INCR 原子计数，定时异步落库）
+     *
+     * @return 实时浏览量 = DB 累计值 + Redis 待落库增量
+     */
+    Integer incrementViewCount(Long productId);
 }

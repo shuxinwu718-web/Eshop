@@ -1,14 +1,13 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
 
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.service.OrderService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.OrderVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -23,14 +22,10 @@ import org.springframework.web.bind.annotation.*;
 public class OrderController {
 
     private final OrderService orderService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
 
     @PostMapping("/create")
     public Result<?> createOrder(@Valid @RequestBody OrderCreateDTO dto,
-                                 @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                 @CurrentUserId Long userId) {
         return Result.success(orderService.createOrder(dto, userId));
     }
 
@@ -38,9 +33,7 @@ public class OrderController {
     @PutMapping("/cancel/{orderId}")
     @Log(value = "取消订单", type = OperationType.CANCEL_ORDER, targetType = "Order")
     public Result<?> cancelOrder(@PathVariable Long orderId,
-                                 @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                 @CurrentUserId Long userId) {
         orderService.cancelOrder(orderId, userId);
         return Result.success("取消成功");
     }
@@ -48,27 +41,21 @@ public class OrderController {
     @PutMapping("/pay/{orderId}")
     public Result<?> payOrder(@PathVariable Long orderId,
                               @RequestBody PayRequest payRequest,
-                              @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                              @CurrentUserId Long userId) {
         orderService.payOrder(orderId, userId, payRequest.getActualAmount());
         return Result.success("支付成功");
     }
 
     @PutMapping("/confirm-receive/{orderId}")
     public Result<?> confirmReceive(@PathVariable Long orderId,
-                                    @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                    @CurrentUserId Long userId) {
         orderService.confirmReceive(orderId, userId);
         return Result.success("确认收货成功");
     }
 
     @GetMapping("/page")
     public Result<Page<OrderVO>> pageQuery(OrderPageQueryDTO dto,
-                                           @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                           @CurrentUserId Long userId) {
         return Result.success(orderService.pageQuery(dto, userId));
     }
 
@@ -76,9 +63,7 @@ public class OrderController {
     // 用户端：获取当前用户的订单（分页）
     @GetMapping("/user/page")
     public Result<Page<OrderVO>> getUserOrders(OrderPageQueryDTO dto,
-                                               @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                               @CurrentUserId Long userId) {
         return Result.success(orderService.userPageQuery(dto, userId));
     }
 
@@ -96,17 +81,13 @@ public class OrderController {
 
     @GetMapping("/{orderId}")
     public Result<OrderVO> getOrderDetail(@PathVariable Long orderId,
-                                          @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                          @CurrentUserId Long userId) {
         return Result.success(orderService.getOrderDetail(orderId, userId));
     }
 
     @PostMapping("/refund/apply")
     public Result<?> applyRefund(@RequestBody @Valid RefundApplyDTO dto,
-                                 @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                 @CurrentUserId Long userId) {
         orderService.applyRefund(userId, dto);
         return Result.success("退款申请已提交，请等待审核");
     }
@@ -115,9 +96,7 @@ public class OrderController {
     @PutMapping("/admin/refund/audit")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<?> auditRefund(@RequestBody @Valid RefundAuditDTO dto,
-                                 @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long adminId = jwtUtil.getUserIdFromToken(token);
+                                 @CurrentUserId Long adminId) {
         dto.setOperatorRole("ADMIN");
         orderService.auditRefund(adminId, dto);
         return Result.success("审核完成");
@@ -129,9 +108,7 @@ public class OrderController {
     @PutMapping("/merchant/refund/audit")
     @PreAuthorize("hasRole('MERCHANT')")
     public Result<?> merchantAuditRefund(@RequestBody @Valid RefundAuditDTO dto,
-                                         @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long merchantId = jwtUtil.getUserIdFromToken(token);
+                                         @CurrentUserId Long merchantId) {
         dto.setOperatorRole("MERCHANT");
         orderService.auditRefund(merchantId, dto);
         return Result.success("审核完成");
@@ -150,9 +127,7 @@ public class OrderController {
      */
     @GetMapping("/refund/stats/{refundId}")
     public Result<?> getRefundStats(@PathVariable Long refundId,
-                                    @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                    @CurrentUserId Long userId) {
         return Result.success(orderService.getRefundStats(userId, refundId));
     }
 
@@ -163,9 +138,7 @@ public class OrderController {
     public Result<?> submitSatisfaction(@RequestParam Long refundId,
                                         @RequestParam Integer rating,
                                         @RequestParam(required = false) String feedback,
-                                        @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                        @CurrentUserId Long userId) {
         orderService.submitSatisfaction(userId, refundId, rating, feedback);
         return Result.success("评价成功");
     }

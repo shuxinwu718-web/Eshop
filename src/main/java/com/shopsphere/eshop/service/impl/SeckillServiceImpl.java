@@ -32,6 +32,8 @@ public class SeckillServiceImpl implements SeckillService {
 
     public static final String STOCK_KEY = "seckill:stock:";
     public static final String USERS_KEY = "seckill:users:";
+    /** 活跃场次列表缓存 key（与 SeckillController 保持一致） */
+    public static final String SESSIONS_CACHE_KEY = "seckill:sessions";
 
     private final SeckillSessionMapper seckillSessionMapper;
     private final CouponMapper couponMapper;
@@ -139,6 +141,8 @@ public class SeckillServiceImpl implements SeckillService {
 
         // 预热 Redis 库存
         stringRedisTemplate.opsForValue().set(STOCK_KEY + session.getId(), String.valueOf(session.getSeckillStock()));
+        // 新增场次影响活跃列表，清理场次列表缓存
+        evictSessionsCache();
         log.info("秒杀场次 [{}] 创建成功，类型 [{}]，库存 {}", session.getSessionName(),
                 type == 1 ? "秒杀商品" : "秒杀优惠券", session.getSeckillStock());
     }
@@ -232,6 +236,8 @@ public class SeckillServiceImpl implements SeckillService {
 
         // 更新 Redis 库存
         stringRedisTemplate.opsForValue().set(STOCK_KEY + session.getId(), String.valueOf(session.getSeckillStock()));
+        // 场次信息变更影响列表展示，清理场次列表缓存
+        evictSessionsCache();
         log.info("秒杀场次 [{}] 已更新，库存 {}", session.getSessionName(), session.getSeckillStock());
     }
 
@@ -242,6 +248,7 @@ public class SeckillServiceImpl implements SeckillService {
         if (session == null) return;
         seckillSessionMapper.deleteById(id);
         cleanRedisKeys(id);
+        evictSessionsCache();
         log.info("秒杀场次 [{}] 已删除", session.getSessionName());
     }
 
@@ -258,6 +265,7 @@ public class SeckillServiceImpl implements SeckillService {
         session.setStatus(SeckillSessionStatus.CANCELLED);
         seckillSessionMapper.updateById(session);
         cleanRedisKeys(id);
+        evictSessionsCache();
         log.info("秒杀场次 [{}] 已撤销", session.getSessionName());
     }
 
@@ -552,6 +560,7 @@ public class SeckillServiceImpl implements SeckillService {
 
         LocalDateTime now = LocalDateTime.now();
         try {
+            boolean listChanged = false;
             // 待开始 → 进行中（同时预热 Redis 库存）
             List<SeckillSession> toStart = seckillSessionMapper.selectList(
                     new LambdaQueryWrapper<SeckillSession>()
@@ -565,6 +574,7 @@ public class SeckillServiceImpl implements SeckillService {
                     if (product == null || product.getStatus() == null || product.getStatus() != 1) {
                         s.setStatus(SeckillSessionStatus.CANCELLED);
                         seckillSessionMapper.updateById(s);
+                        listChanged = true;
                         log.warn("秒杀场次 [{}] 已自动撤销，原因：秒杀商品无效", s.getSessionName());
                         continue;
                     }
@@ -574,6 +584,7 @@ public class SeckillServiceImpl implements SeckillService {
                     if (coupon == null || coupon.getStatus() != 1) {
                         s.setStatus(SeckillSessionStatus.CANCELLED);
                         seckillSessionMapper.updateById(s);
+                        listChanged = true;
                         log.warn("秒杀场次 [{}] 已自动撤销，原因：关联优惠券无效", s.getSessionName());
                         continue;
                     }
@@ -582,6 +593,7 @@ public class SeckillServiceImpl implements SeckillService {
                 s.setStatus(SeckillSessionStatus.ACTIVE);
                 seckillSessionMapper.updateById(s);
                 stringRedisTemplate.opsForValue().set(STOCK_KEY + s.getId(), String.valueOf(s.getSeckillStock()));
+                listChanged = true;
                 log.info("秒杀场次 [{}] 已自动开始，库存已预热：{}", s.getSessionName(), s.getSeckillStock());
             }
 
@@ -594,7 +606,13 @@ public class SeckillServiceImpl implements SeckillService {
                 s.setStatus(SeckillSessionStatus.ENDED);
                 seckillSessionMapper.updateById(s);
                 cleanRedisKeys(s.getId());
+                listChanged = true;
                 log.info("秒杀场次 [{}] 已自动结束，Redis 缓存已清理", s.getSessionName());
+            }
+
+            // 活跃场次集合发生变化时，清理场次列表缓存
+            if (listChanged) {
+                evictSessionsCache();
             }
         } catch (Exception e) {
             log.error("秒杀状态自动更新异常", e);
@@ -605,5 +623,10 @@ public class SeckillServiceImpl implements SeckillService {
     private void cleanRedisKeys(Long sessionId) {
         stringRedisTemplate.delete(STOCK_KEY + sessionId);
         stringRedisTemplate.delete(USERS_KEY + sessionId);
+    }
+
+    /** 清除活跃场次列表缓存（影响活跃场次集合的变更后调用，短TTL作为兜底） */
+    private void evictSessionsCache() {
+        stringRedisTemplate.delete(SESSIONS_CACHE_KEY);
     }
 }

@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
@@ -11,8 +12,6 @@ import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.entity.ProductImage;
 import com.shopsphere.eshop.service.ProductImageService;
 import com.shopsphere.eshop.service.ProductService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,13 +25,9 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductImageService productImageService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
     @PostMapping
     public Result<?> addProduct(@Valid @RequestBody ProductSaveDTO dto,
-                                @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                @CurrentUserId Long userId) {
         dto.setMerchantId(userId);
 
         productService.addProduct(dto);
@@ -73,7 +68,12 @@ public class ProductController {
 
     @GetMapping("/{id}")
     public Result<Product> getProductById(@PathVariable Long id) {
-        return Result.success(productService.getProductById(id));
+        Product product = productService.getProductById(id);
+        if (product != null) {
+            // 浏览计数：Redis INCR +1，并返回实时浏览量（DB累计 + 待落库增量）
+            product.setViews(productService.incrementViewCount(id));
+        }
+        return Result.success(product);
     }
 
     @GetMapping("/{productId}/images")

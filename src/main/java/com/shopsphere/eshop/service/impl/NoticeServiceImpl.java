@@ -22,7 +22,9 @@ import java.util.ArrayList;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -182,13 +184,16 @@ public class NoticeServiceImpl implements NoticeService {
         );
         wrapper.orderByDesc(Notice::getPublishTime);
         Page<Notice> noticePage = noticeMapper.selectPage(page, wrapper);
+        // 一次批量查询已读通知ID，避免逐条 selectCount（N+1）
+        List<Long> noticeIds = noticePage.getRecords().stream().map(Notice::getId).collect(Collectors.toList());
+        Set<Long> readNoticeIds = noticeIds.isEmpty() ? Collections.emptySet()
+                : noticeReadMapper.selectList(new LambdaQueryWrapper<NoticeRead>()
+                        .in(NoticeRead::getNoticeId, noticeIds)
+                        .eq(NoticeRead::getUserId, userId))
+                .stream().map(NoticeRead::getNoticeId).collect(Collectors.toSet());
         List<NoticeVO> voList = noticePage.getRecords().stream().map(notice -> {
             NoticeVO vo = convertToVO(notice);
-            // 查询是否已读
-            LambdaQueryWrapper<NoticeRead> readWrapper = new LambdaQueryWrapper<>();
-            readWrapper.eq(NoticeRead::getNoticeId, notice.getId())
-                    .eq(NoticeRead::getUserId, userId);
-            vo.setIsRead(noticeReadMapper.selectCount(readWrapper) > 0 ? 1 : 0);
+            vo.setIsRead(readNoticeIds.contains(notice.getId()) ? 1 : 0);
             return vo;
         }).collect(Collectors.toList());
         Page<NoticeVO> resultPage = new Page<>(dto.getPageNum(), dto.getPageSize(), noticePage.getTotal());
@@ -267,14 +272,17 @@ public class NoticeServiceImpl implements NoticeService {
     @Override
     public List<NoticeVO> getUnreadNotices(Long userId, int limit) {
         List<Notice> notices = noticeMapper.selectUnreadByUser(userId, limit);
+        // 一次批量查询已读通知ID，避免逐条 selectCount（N+1）
+        List<Long> noticeIds = notices.stream().map(Notice::getId).collect(Collectors.toList());
+        Set<Long> readNoticeIds = noticeIds.isEmpty() ? Collections.emptySet()
+                : noticeReadMapper.selectList(new LambdaQueryWrapper<NoticeRead>()
+                        .in(NoticeRead::getNoticeId, noticeIds)
+                        .eq(NoticeRead::getUserId, userId))
+                .stream().map(NoticeRead::getNoticeId).collect(Collectors.toSet());
         List<NoticeVO> voList = new ArrayList<>();
         for (Notice notice : notices) {
             NoticeVO vo = convertToVO(notice);
-            // 查询是否已读（未读列表里理论上都是未读的，但保持和 getMyNotices 一致的模式）
-            LambdaQueryWrapper<NoticeRead> readWrapper = new LambdaQueryWrapper<>();
-            readWrapper.eq(NoticeRead::getNoticeId, notice.getId())
-                    .eq(NoticeRead::getUserId, userId);
-            vo.setIsRead(noticeReadMapper.selectCount(readWrapper) > 0 ? 1 : 0);
+            vo.setIsRead(readNoticeIds.contains(notice.getId()) ? 1 : 0);
             voList.add(vo);
         }
         return voList;

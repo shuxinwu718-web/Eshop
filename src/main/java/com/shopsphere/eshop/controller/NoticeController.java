@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
@@ -52,10 +53,10 @@ public class NoticeController {
     @Log(value = "发布通知", type = OperationType.PUBLISH_NOTICE, targetType = "Notice")
     public Result<?> create(
             @RequestBody @Valid NoticeFormDTO dto,
+            @CurrentUserId Long userId,
             @RequestHeader(value = "Authorization", required = true) String authHeader) {
         // 从当前登录用户获取发布人信息
         String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
         String username = jwtUtil.getUsernameFromToken(token);
         dto.setPublisherId(userId);
         dto.setPublisherName(username);
@@ -96,44 +97,34 @@ public class NoticeController {
     @GetMapping("/{id}/detail")
     public Result<NoticeVO> getDetail
             (@PathVariable Long id,
-              @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+              @CurrentUserId Long userId) {
         return Result.success(noticeService.getDetailForUser(id, userId));
     }
 
     @GetMapping("/my")
     public Result<Page<NoticeVO>> getMyNotices(
-            @RequestHeader(value = "Authorization", required = true) String authHeader,
+            @CurrentUserId Long userId,
             NoticeQueryDTO dto) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
         return Result.success(noticeService.getMyNotices(dto, userId));
     }
 
     @PutMapping("/read-all")
     public Result<?> readAll(
-            @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+            @CurrentUserId Long userId) {
         noticeService.readAll(userId);
         return Result.success("全部标记已读");
     }
 
     @GetMapping("/unread-count")
     public Result<Long> getUnreadCount(
-            @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+            @CurrentUserId Long userId) {
         return Result.success(noticeService.getUnreadCount(userId));
     }
 
     @GetMapping("/unread-list")
     public Result<List<NoticeVO>> getUnreadList(
             @RequestParam(defaultValue = "5") Integer limit,
-            @RequestHeader(value = "Authorization", required = true) String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+            @CurrentUserId Long userId) {
         return Result.success(noticeService.getUnreadNotices(userId, limit));
     }
 }

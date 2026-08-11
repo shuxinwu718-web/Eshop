@@ -1,12 +1,11 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.CouponReceiveDTO;
 import com.shopsphere.eshop.dto.FestivalCouponClaimDTO;
 import com.shopsphere.eshop.entity.Coupon;
 import com.shopsphere.eshop.service.UserCouponService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import com.shopsphere.eshop.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -23,8 +22,6 @@ import java.util.List;
 public class UserCouponController {
 
     private final UserCouponService userCouponService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
     /**
      * 领券中心 - 可领取的优惠券列表
      * @param type 优惠券类型（0=满减, 1=折扣），可选
@@ -44,8 +41,7 @@ public class UserCouponController {
      */
     @PostMapping("/receive")
     public Result<?> receiveCoupon(@RequestBody @Valid CouponReceiveDTO dto,
-                                   @RequestHeader("Authorization") String authHeader) {
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+                                   @CurrentUserId Long userId) {
         userCouponService.receiveCoupon(userId, dto.getCouponId());
         return Result.success("领取成功");
     }
@@ -55,8 +51,7 @@ public class UserCouponController {
      */
     @GetMapping("/my")
     public Result<List<UserCouponVO>> getMyCoupons(@RequestParam(required = false) Integer status,
-                                                   @RequestHeader("Authorization") String authHeader) {
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+                                                   @CurrentUserId Long userId) {
         return Result.success(userCouponService.getMyCoupons(userId, status));
     }
 
@@ -64,12 +59,11 @@ public class UserCouponController {
     /**
      * 获取当前订单可用的优惠券列表（根据订单金额筛选）
      * @param totalAmount 订单原价总金额（由前端传入）
-     * @param authHeader 用户token
+     * @param userId 用户ID
      */
     @GetMapping("/usable")
     public Result<List<UserCouponVO>> getUsableCoupons(@RequestParam BigDecimal totalAmount,
-                                                       @RequestHeader("Authorization") String authHeader) {
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+                                                       @CurrentUserId Long userId) {
         List<UserCouponVO> list = userCouponService.getUsableCoupons(userId, totalAmount);
         return Result.success(list);
     }
@@ -79,8 +73,7 @@ public class UserCouponController {
      */
     @PostMapping("/claim-festival")
     public Result<?> claimFestivalCoupon(@RequestBody @Valid FestivalCouponClaimDTO dto,
-                                         @RequestHeader("Authorization") String authHeader) {
-        Long userId = jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader));
+                                         @CurrentUserId Long userId) {
         userCouponService.claimFestivalCoupon(userId, dto.getPlanId());
         return Result.success("领取成功");
     }

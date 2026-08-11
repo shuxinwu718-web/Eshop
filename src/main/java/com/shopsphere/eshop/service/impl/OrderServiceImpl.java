@@ -7,6 +7,7 @@ import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
+import com.shopsphere.eshop.service.GroupBuyService;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.entity.RefundReasonCategory;
@@ -50,6 +51,7 @@ public class OrderServiceImpl implements OrderService {
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
     private final StringRedisTemplate stringRedisTemplate;
+    private final GroupBuyService groupBuyService;
 
     @Scheduled(cron = "0 */5 * * * ?")
     public void scheduledCancelOrders() {
@@ -329,49 +331,51 @@ public class OrderServiceImpl implements OrderService {
         order.setCancelTime(LocalDateTime.now());
         orderMapper.updateById(order);
 
-        // 2. 恢复商品库存（支持SKU）
-          List<OrderItem> items = orderItemMapper.selectList(
-                  new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
-          );
-          Set<Long> merchantIds = new HashSet<>();
-          Set<Long> affectedProductIds = new HashSet<>();
-          for (OrderItem item : items) {
-              if (item.getSkuId() != null) {
-                  ProductSku sku = productSkuMapper.selectById(item.getSkuId());
-                  if (sku != null) {
-                      sku.setStock(sku.getStock() + item.getQuantity());
-                      productSkuMapper.updateById(sku);
-                  }
-              } else {
-                  Product product = productMapper.selectById(item.getProductId());
-                  if (product != null) {
-                      product.setStock(product.getStock() + item.getQuantity());
-                      productMapper.updateById(product);
-                      merchantIds.add(product.getMerchantId());
-                  }
-              }
-              affectedProductIds.add(item.getProductId());
-          }
-          // 2b. 对有SKU的商品，重新从SKU汇总同步product.stock
-          for (Long pid : affectedProductIds) {
-              List<ProductSku> skuList = productSkuMapper.selectList(
-                      new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
-              if (!skuList.isEmpty()) {
-                  int totalStock = skuList.stream()
-                          .filter(s -> s.getStock() != null)
-                          .mapToInt(ProductSku::getStock)
-                          .sum();
-                  Product p = productMapper.selectById(pid);
-                  if (p != null) {
-                      p.setStock(totalStock);
-                      productMapper.updateById(p);
-                  }
-              }
-              // 清除Redis缓存
-              redisTemplate.delete("product:detail:" + pid);
-          }
+        // 2. 恢复商品库存（支持SKU）——拼团订单下单时不扣库存（成团时才扣），取消时无需回退
+        Set<Long> merchantIds = new HashSet<>();
+        if (order.getType() != Order.ORDER_TYPE_GROUP_BUY) {
+            List<OrderItem> items = orderItemMapper.selectList(
+                    new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
+            );
+            Set<Long> affectedProductIds = new HashSet<>();
+            for (OrderItem item : items) {
+                if (item.getSkuId() != null) {
+                    ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+                    if (sku != null) {
+                        sku.setStock(sku.getStock() + item.getQuantity());
+                        productSkuMapper.updateById(sku);
+                    }
+                } else {
+                    Product product = productMapper.selectById(item.getProductId());
+                    if (product != null) {
+                        product.setStock(product.getStock() + item.getQuantity());
+                        productMapper.updateById(product);
+                        merchantIds.add(product.getMerchantId());
+                    }
+                }
+                affectedProductIds.add(item.getProductId());
+            }
+            // 2b. 对有SKU的商品，重新从SKU汇总同步product.stock
+            for (Long pid : affectedProductIds) {
+                List<ProductSku> skuList = productSkuMapper.selectList(
+                        new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
+                if (!skuList.isEmpty()) {
+                    int totalStock = skuList.stream()
+                            .filter(s -> s.getStock() != null)
+                            .mapToInt(ProductSku::getStock)
+                            .sum();
+                    Product p = productMapper.selectById(pid);
+                    if (p != null) {
+                        p.setStock(totalStock);
+                        productMapper.updateById(p);
+                    }
+                }
+                // 清除Redis缓存
+                redisTemplate.delete("product:detail:" + pid);
+            }
+        }
 
-          // 3. 归还优惠券
+        // 3. 归还优惠券
         releaseCouponIfAny(order.getOrderNo());
 
         // 3b. 秒杀商品订单：回滚秒杀场次库存与 Redis 数据（释放库存供再次抢购）
@@ -382,6 +386,10 @@ public class OrderServiceImpl implements OrderService {
             stringRedisTemplate.opsForSet().remove(SeckillServiceImpl.USERS_KEY + sid, String.valueOf(order.getUserId()));
             log.info("秒杀订单取消，已回滚秒杀库存 sessionId={}, orderId={}", sid, order.getId());
         }
+
+        // 3c. 拼团订单：删除未支付成员释放团位，团内无人则团失效
+        //     （拼团订单下单不扣库存，库存由成团时扣减，此处无需回滚）
+        groupBuyService.onOrderCancelled(order.getId());
 
         // 4. 发送系统通知（商家）
         for (Long merchantId : merchantIds) {
@@ -490,6 +498,11 @@ public class OrderServiceImpl implements OrderService {
                 orderId
         );
 
+        // 拼团订单：标记成员已支付并做成团判定
+        if (order.getType() != null && order.getType() == Order.ORDER_TYPE_GROUP_BUY) {
+            groupBuyService.onOrderPaid(orderId);
+        }
+
         log.info("订单支付成功 orderId={}, orderNo={}, userId={}, amount={}",
                 orderId, order.getOrderNo(), userId, actualAmount);
     }
@@ -570,97 +583,121 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private OrderVO convertToOrderVO(Order order) {
-        OrderVO vo = new OrderVO();
-        vo.setId(order.getId());
-        vo.setOrderNo(order.getOrderNo());
-        vo.setUserId(order.getUserId());
-        vo.setTotalAmount(order.getTotalAmount());
-        vo.setPayAmount(order.getPayAmount());
-        vo.setStatus(order.getOrderStatus());
-        vo.setPayStatus(order.getPayStatus());
-        vo.setCreateTime(order.getCreateTime());
-        vo.setReceiverName(order.getReceiverName());
-        vo.setReceiverPhone(order.getReceiverPhone());
-        vo.setReceiverAddress(order.getReceiverAddress());
+        List<OrderVO> list = convertToOrderVOs(Collections.singletonList(order));
+        return list.isEmpty() ? null : list.get(0);
+    }
 
-        // 查询退款记录（如果有，取最新一条）
-        LambdaQueryWrapper<RefundApplication> refundWrapper = new LambdaQueryWrapper<>();
-        refundWrapper.eq(RefundApplication::getOrderId, order.getId())
-                .orderByDesc(RefundApplication::getId)
-                .last("LIMIT 1");
-        RefundApplication refundApp = refundMapper.selectOne(refundWrapper);
-        if (refundApp != null) {
-            vo.setRefundId(refundApp.getId());
-            vo.setRefundStatus(refundApp.getStatus());
-
-            // 查询是否已提交反馈评价
-            LambdaQueryWrapper<RefundSatisfaction> satisfactionWrapper = new LambdaQueryWrapper<>();
-            satisfactionWrapper.eq(RefundSatisfaction::getRefundId, refundApp.getId());
-            long count = refundSatisfactionMapper.selectCount(satisfactionWrapper);
-            vo.setEvaluated(count > 0);
-        } else {
-            vo.setEvaluated(false);
+    /** 批量订单转 VO：一次批量查询全部关联数据（退款/满意度/订单项/发货单），消除列表接口 N+1 */
+    private List<OrderVO> convertToOrderVOs(List<Order> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return Collections.emptyList();
         }
+        List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
 
-        // 查询所有商品明细
-        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
-        itemWrapper.eq(OrderItem::getOrderId, order.getId());
-        List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+        // 退款记录：每单取最新一条（id 最大）
+        Map<Long, RefundApplication> refundMap = refundMapper.selectList(
+                        new LambdaQueryWrapper<RefundApplication>().in(RefundApplication::getOrderId, orderIds))
+                .stream()
+                .collect(Collectors.toMap(RefundApplication::getOrderId, r -> r,
+                        (a, b) -> a.getId() >= b.getId() ? a : b));
 
-        // 按 shipment 分组查询发货状态
-        LambdaQueryWrapper<OrderShipment> shipmentWrapper = new LambdaQueryWrapper<>();
-        shipmentWrapper.eq(OrderShipment::getOrderId, order.getId());
-        List<OrderShipment> shipments = orderShipmentMapper.selectList(shipmentWrapper);
-        Map<Long, OrderShipment> shipmentMap = shipments.stream()
-                .collect(Collectors.toMap(OrderShipment::getId, s -> s));
+        // 已提交退款反馈评价的退款ID集合
+        Set<Long> evaluatedRefundIds = refundMap.isEmpty() ? Collections.emptySet()
+                : refundSatisfactionMapper.selectList(new LambdaQueryWrapper<RefundSatisfaction>()
+                        .in(RefundSatisfaction::getRefundId, refundMap.keySet()))
+                .stream().map(RefundSatisfaction::getRefundId).collect(Collectors.toSet());
 
-        List<OrderVO.OrderItemVO> itemVOs = items.stream().map(item -> {
-            OrderVO.OrderItemVO itemVO = new OrderVO.OrderItemVO();
-            itemVO.setProductId(item.getProductId());
-            itemVO.setSkuId(item.getSkuId());
-            itemVO.setSkuSpecs(item.getSkuSpecs());
-            itemVO.setProductName(item.getProductName());
-            itemVO.setProductPrice(item.getPrice());
-            itemVO.setQuantity(item.getQuantity());
-            itemVO.setProductImage(item.getProductImage());
+        // 订单项：按订单ID分组
+        Map<Long, List<OrderItem>> itemsByOrder = orderItemMapper.selectList(
+                        new LambdaQueryWrapper<OrderItem>().in(OrderItem::getOrderId, orderIds))
+                .stream().collect(Collectors.groupingBy(OrderItem::getOrderId));
 
-            // 从发货单获取物流信息
-            OrderShipment shipment = shipmentMap.get(item.getShipmentId());
-            if (shipment != null) {
-                itemVO.setShippingName(shipment.getShippingName());
-                itemVO.setShippingNo(shipment.getShippingNo());
-                itemVO.setDeliveryStatus(shipment.getDeliveryStatus());
-                if (shipment.getDeliveryStatus() != null) {
-                    switch (shipment.getDeliveryStatus()) {
-                        case 0: itemVO.setShipStatus("pending"); break;
-                        case 1: itemVO.setShipStatus("shipped"); break;
-                        case 2: itemVO.setShipStatus("received"); break;
-                        default: itemVO.setShipStatus("pending");
+        // 发货单：按订单ID分组
+        Map<Long, List<OrderShipment>> shipmentsByOrder = orderShipmentMapper.selectList(
+                        new LambdaQueryWrapper<OrderShipment>().in(OrderShipment::getOrderId, orderIds))
+                .stream().collect(Collectors.groupingBy(OrderShipment::getOrderId));
+
+        // 发货单包含的订单项ID：按发货单ID分组（一次批量查询，替代每发货单一次查询）
+        List<Long> shipmentIds = shipmentsByOrder.values().stream()
+                .flatMap(List::stream).map(OrderShipment::getId).collect(Collectors.toList());
+        Map<Long, List<Long>> itemIdsByShipment = shipmentIds.isEmpty() ? Collections.emptyMap()
+                : orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
+                        .in(OrderItem::getShipmentId, shipmentIds))
+                .stream().collect(Collectors.groupingBy(OrderItem::getShipmentId,
+                        Collectors.mapping(OrderItem::getId, Collectors.toList())));
+
+        return orders.stream().map(order -> {
+            OrderVO vo = new OrderVO();
+            vo.setId(order.getId());
+            vo.setOrderNo(order.getOrderNo());
+            vo.setUserId(order.getUserId());
+            vo.setTotalAmount(order.getTotalAmount());
+            vo.setPayAmount(order.getPayAmount());
+            vo.setStatus(order.getOrderStatus());
+            vo.setPayStatus(order.getPayStatus());
+            vo.setCreateTime(order.getCreateTime());
+            vo.setReceiverName(order.getReceiverName());
+            vo.setReceiverPhone(order.getReceiverPhone());
+            vo.setReceiverAddress(order.getReceiverAddress());
+
+            RefundApplication refundApp = refundMap.get(order.getId());
+            if (refundApp != null) {
+                vo.setRefundId(refundApp.getId());
+                vo.setRefundStatus(refundApp.getStatus());
+                vo.setEvaluated(evaluatedRefundIds.contains(refundApp.getId()));
+            } else {
+                vo.setEvaluated(false);
+            }
+
+            List<OrderItem> items = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
+            Map<Long, OrderShipment> shipmentMap = shipmentsByOrder
+                    .getOrDefault(order.getId(), Collections.emptyList())
+                    .stream().collect(Collectors.toMap(OrderShipment::getId, s -> s));
+
+            vo.setItems(items.stream().map(item -> {
+                OrderVO.OrderItemVO itemVO = new OrderVO.OrderItemVO();
+                itemVO.setProductId(item.getProductId());
+                itemVO.setSkuId(item.getSkuId());
+                itemVO.setSkuSpecs(item.getSkuSpecs());
+                itemVO.setProductName(item.getProductName());
+                itemVO.setProductPrice(item.getPrice());
+                itemVO.setQuantity(item.getQuantity());
+                itemVO.setProductImage(item.getProductImage());
+
+                // 从发货单获取物流信息
+                OrderShipment shipment = shipmentMap.get(item.getShipmentId());
+                if (shipment != null) {
+                    itemVO.setShippingName(shipment.getShippingName());
+                    itemVO.setShippingNo(shipment.getShippingNo());
+                    itemVO.setDeliveryStatus(shipment.getDeliveryStatus());
+                    if (shipment.getDeliveryStatus() != null) {
+                        switch (shipment.getDeliveryStatus()) {
+                            case 0: itemVO.setShipStatus("pending"); break;
+                            case 1: itemVO.setShipStatus("shipped"); break;
+                            case 2: itemVO.setShipStatus("received"); break;
+                            default: itemVO.setShipStatus("pending");
+                        }
                     }
                 }
-            }
-            return itemVO;
-        }).collect(Collectors.toList());
-        vo.setItems(itemVOs);
+                return itemVO;
+            }).collect(Collectors.toList()));
 
-        // 构建发货单VO列表
-        List<OrderVO.ShipmentVO> shipmentVOs = shipments.stream().map(s -> {
-            OrderVO.ShipmentVO sv = new OrderVO.ShipmentVO();
-            sv.setId(s.getId());
-            sv.setDeliveryStatus(s.getDeliveryStatus());
-            sv.setShippingName(s.getShippingName());
-            sv.setShippingNo(s.getShippingNo());
-            sv.setShippingTime(s.getShippingTime());
-            sv.setReceivedTime(s.getReceivedTime());
-            sv.setItemIds(orderItemMapper.selectList(
-                    new LambdaQueryWrapper<OrderItem>()
-                            .eq(OrderItem::getShipmentId, s.getId())
-            ).stream().map(OrderItem::getId).collect(Collectors.toList()));
-            return sv;
-        }).collect(Collectors.toList());
-        vo.setShipments(shipmentVOs);
+            // 构建发货单VO列表
+            vo.setShipments(shipmentsByOrder.getOrDefault(order.getId(), Collections.emptyList())
+                    .stream().map(s -> {
+                        OrderVO.ShipmentVO sv = new OrderVO.ShipmentVO();
+                        sv.setId(s.getId());
+                        sv.setDeliveryStatus(s.getDeliveryStatus());
+                        sv.setShippingName(s.getShippingName());
+                        sv.setShippingNo(s.getShippingNo());
+                        sv.setShippingTime(s.getShippingTime());
+                        sv.setReceivedTime(s.getReceivedTime());
+                        sv.setItemIds(itemIdsByShipment.getOrDefault(s.getId(), Collections.emptyList()));
+                        return sv;
+                    }).collect(Collectors.toList()));
 
-        return vo;
+            return vo;
+        }).collect(Collectors.toList());
     }
 
     @Override
@@ -677,10 +714,7 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderMapper.selectPage(page, wrapper);
 
         Page<OrderVO> voPage = new Page<>(orderPage.getCurrent(), orderPage.getSize(), orderPage.getTotal());
-        List<OrderVO> orderVOs = orderPage.getRecords().stream()
-                .map(this::convertToOrderVO)
-                .collect(Collectors.toList());
-        voPage.setRecords(orderVOs);
+        voPage.setRecords(convertToOrderVOs(orderPage.getRecords()));
         return voPage;
     }
 
@@ -699,10 +733,7 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderMapper.selectPage(page, wrapper);
 
         Page<OrderVO> voPage = new Page<>(orderPage.getCurrent(), orderPage.getSize(), orderPage.getTotal());
-        List<OrderVO> orderVOs = orderPage.getRecords().stream()
-                .map(this::convertToOrderVO)
-                .collect(Collectors.toList());
-        voPage.setRecords(orderVOs);
+        voPage.setRecords(convertToOrderVOs(orderPage.getRecords()));
         return voPage;
     }
 

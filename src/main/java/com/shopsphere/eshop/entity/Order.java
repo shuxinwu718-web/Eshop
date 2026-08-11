@@ -38,6 +38,9 @@ public class Order {
     @TableField("seckill_session_id")
     private Long seckillSessionId;
 
+    /** 订单类型：普通订单（null/0） */
+    public static final int ORDER_TYPE_GROUP_BUY = 2;
+
     @TableField("pay_status")
     private Integer payStatus;
 

@@ -1,5 +1,6 @@
 package com.shopsphere.eshop.controller;
 
+import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.annotation.Log;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.constant.OperationType;
@@ -10,8 +11,6 @@ import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.service.EmailService;
 import com.shopsphere.eshop.service.OnlineUserService;
 import com.shopsphere.eshop.service.UserService;
-import com.shopsphere.eshop.utils.JwtUtil;
-import com.shopsphere.eshop.utils.TokenUtils;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,8 +25,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 public class UserController {
 
     private final UserService userService;
-    private final JwtUtil jwtUtil;
-    private final TokenUtils tokenUtils;
     private final BCryptPasswordEncoder passwordEncoder;
 
     private final EmailService emailService;
@@ -45,9 +42,7 @@ public class UserController {
     }
 
     @GetMapping("/info")
-    public Result<?> getUserInfo(@RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<?> getUserInfo(@CurrentUserId Long userId) {
         return Result.success(userService.getUserInfo(userId));
     }
 
@@ -104,9 +99,7 @@ public class UserController {
     // ========== 用户自身接口 ==========
 
     @PostMapping("/deactivate")
-    public Result<?> deactivateAccount(@RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<?> deactivateAccount(@CurrentUserId Long userId) {
         userService.deactivateAccount(userId);
         return Result.success("账号已注销");
     }
@@ -116,9 +109,7 @@ public class UserController {
     // ========== 个人信息模块 ==========
 
     @GetMapping("/me")
-    public Result<UserProfileDetail> getCurrentUserInfo(@RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<UserProfileDetail> getCurrentUserInfo(@CurrentUserId Long userId) {
         User user = userService.getById(userId);
         if (user == null) throw new BusinessException("用户不存在");
         UserProfileDetail detail = new UserProfileDetail();
@@ -137,15 +128,13 @@ public class UserController {
     }
 
     @GetMapping("/profile")
-    public Result<UserProfileDetail> getProfile(@RequestHeader("Authorization") String authHeader) {
-        return getCurrentUserInfo(authHeader);
+    public Result<UserProfileDetail> getProfile(@CurrentUserId Long userId) {
+        return getCurrentUserInfo(userId);
     }
 
     @PutMapping("/profile")
     public Result<Void> updateProfile(@RequestBody UserProfileForm form,
-                                      @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                      @CurrentUserId Long userId) {
         User user = userService.getById(userId);
         if (user == null) throw new BusinessException("用户不存在");
         if (form.getNickname() != null) user.setNickname(form.getNickname());
@@ -159,9 +148,7 @@ public class UserController {
 
     @PutMapping("/password")
     public Result<Void> changePassword(@RequestBody PasswordChangeForm form,
-                                       @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                       @CurrentUserId Long userId) {
         User user = userService.getById(userId);
         if (user == null) throw new BusinessException("用户不存在");
 
@@ -181,10 +168,8 @@ public class UserController {
 
     @PutMapping("/mobile")
     public Result<Void> bindOrChangeMobile(@RequestBody MobileUpdateForm form,
-                                           @RequestHeader("Authorization") String authHeader) {
+                                           @CurrentUserId Long userId) {
         // TODO: 验证验证码
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
         User user = userService.getById(userId);
         user.setPhone(form.getMobile());
         userService.updateById(user);
@@ -207,9 +192,7 @@ public class UserController {
     @PostMapping("/bind-email")
     public Result<String> bindEmail(@RequestParam String email,
                                     @RequestParam String code,
-                                    @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                    @CurrentUserId Long userId) {
         emailService.bindEmail(userId, email, code);
         return Result.success( "邮箱绑定成功");
     }
@@ -220,9 +203,7 @@ public class UserController {
      */
     @PutMapping("/email")
     public Result<String> bindOrChangeEmail(@RequestBody EmailUpdateForm form,
-                                            @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                            @CurrentUserId Long userId) {
         emailService.bindEmail(userId, form.getEmail(), form.getCode());
         return Result.success("邮箱绑定成功");
     }
@@ -232,9 +213,7 @@ public class UserController {
      */
     @DeleteMapping("/email")
     public Result<String> unbindEmail(@RequestBody PasswordVerifyForm form,
-                                      @RequestHeader("Authorization") String authHeader) {
-        String token = tokenUtils.extractToken(authHeader);
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                      @CurrentUserId Long userId) {
         User user = userService.getById(userId);
         if (user == null) throw new BusinessException("用户不存在");
         if (!passwordEncoder.matches(form.getPassword(), user.getPassword())) {

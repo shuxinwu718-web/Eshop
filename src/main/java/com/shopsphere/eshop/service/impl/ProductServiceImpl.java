@@ -29,14 +29,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -48,6 +47,7 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryMapper categoryMapper;
     private final ProductImageService productImageService;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final ProductSyncService productSyncService;
     private final UserMapper userMapper;
@@ -57,8 +57,20 @@ public class ProductServiceImpl implements ProductService {
     private static final String CACHE_HOT = "product:hot:";
     private static final String CACHE_DETAIL = "product:detail:";
     private static final String CACHE_IMAGES = "product:images:";
+    /** 商品浏览量计数 key（Redis INCR 原子计数，定时批量落库） */
+    private static final String CACHE_VIEW = "product:view:";
     private static final long HOT_TTL = 5;
     private static final long DETAIL_TTL = 30;
+    /** 空值缓存占位符（防缓存穿透） */
+    private static final String CACHE_NULL_VALUE = "NULL";
+    /** 空值缓存过期时间（分钟），比正常缓存短 */
+    private static final long NULL_TTL_MINUTES = 5;
+    /** 商品详情缓存基础过期时间（分钟） */
+    private static final long DETAIL_TTL_MINUTES = 30;
+    /** 分布式锁过期时间（秒），防止持锁线程异常未释放导致死锁 */
+    private static final long LOCK_TTL_SECONDS = 10;
+    /** 拿不到锁时的自旋重试次数 */
+    private static final int LOCK_RETRY_TIMES = 5;
 
     @Override
     public void addProduct(ProductSaveDTO dto) {
@@ -278,62 +290,139 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public Product getProductById(Long id) {
         String key = CACHE_DETAIL + id;
-        Object cached = redisTemplate.opsForValue().get(key);
-        Product product = null;
-        if (cached instanceof Product) {
-            product = (Product) cached;
-        } else if (cached instanceof Map) {
-            product = objectMapper.convertValue(cached, Product.class);
-            redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
-        } else {
-            product = productMapper.selectById(id);
-            if (product != null) {
-                redisTemplate.opsForValue().set(key, product, DETAIL_TTL, TimeUnit.MINUTES);
+
+        // 1. 快速查缓存（StringRedisTemplate 存 JSON 字符串，避免类型序列化陷阱）
+        Product cached = readDetailCache(key);
+        if (cached != null) return cached;
+        if (isNullCached(key)) return null;   // 缓存中明确标记了"商品不存在"
+
+        // 2. 加锁防缓存击穿：同一商品的高并发请求只放一个进 DB，其余等待
+        String lockKey = "lock:product:" + id;
+        String requestId = UUID.randomUUID().toString();
+        Boolean locked = stringRedisTemplate.opsForValue()
+                .setIfAbsent(lockKey, requestId, LOCK_TTL_SECONDS, TimeUnit.SECONDS);
+
+        if (Boolean.TRUE.equals(locked)) {
+            try {
+                // 双重检查：拿到锁后可能已有其他线程回填了缓存
+                Product cachedAgain = readDetailCache(key);
+                if (cachedAgain != null) return cachedAgain;
+                if (isNullCached(key)) return null;
+
+                // 查数据库
+                Product product = loadProductFromDB(id);
+                if (product == null) {
+                    // 缓存空值占位（防穿透），TTL 设短一些
+                    stringRedisTemplate.opsForValue()
+                            .set(key, CACHE_NULL_VALUE, NULL_TTL_MINUTES, TimeUnit.MINUTES);
+                    return null;
+                }
+                // 随机 TTL 防雪崩：同一批 key 不会集中在同一时刻过期
+                long ttl = DETAIL_TTL_MINUTES + ThreadLocalRandom.current().nextInt(10);
+                writeDetailCache(key, product, ttl);
+                return product;
+            } finally {
+                // 释放锁：校验 value 唯一标识，防止误删其他线程刚获取的锁
+                if (requestId.equals(stringRedisTemplate.opsForValue().get(lockKey))) {
+                    stringRedisTemplate.delete(lockKey);
+                }
             }
         }
-        // 填充商家信息
-        if (product != null) {
-            User merchant = userMapper.selectById(product.getMerchantId());
-            if (merchant != null) {
-                product.setMerchantName(merchant.getNickname() != null ? merchant.getNickname() : merchant.getUsername());
-                product.setMerchantAvatar(merchant.getAvatar());
-            }
-            // 填充规格模板
-            LambdaQueryWrapper<ProductSpec> specWrapper = new LambdaQueryWrapper<ProductSpec>()
-                    .eq(ProductSpec::getProductId, id)
-                    .orderByAsc(ProductSpec::getSortOrder);
-            product.setSpecs(productSpecMapper.selectList(specWrapper));
-            // 填充SKU列表
-            LambdaQueryWrapper<ProductSku> skuWrapper = new LambdaQueryWrapper<ProductSku>()
-                    .eq(ProductSku::getProductId, id);
-            List<ProductSku> skuList = productSkuMapper.selectList(skuWrapper);
-            product.setSkus(skuList);
-            // 商品总销量 = 各SKU销量之和（有SKU时覆盖 product.sales）
-            if (skuList != null && !skuList.isEmpty()) {
-                int totalSkuSales = skuList.stream()
-                        .filter(s -> s.getSales() != null)
-                        .mapToInt(ProductSku::getSales)
-                        .sum();
-                product.setSales(totalSkuSales);
-            }
-            // 更新缓存（保证后续请求拿到最新数据）
-            redisTemplate.opsForValue().set(key, product, 30, TimeUnit.MINUTES);
 
-            // 填充尺寸表数据
-            ProductSizeChart chart = productSizeChartMapper.selectOne(
-                    new LambdaQueryWrapper<ProductSizeChart>().eq(ProductSizeChart::getProductId, id));
-            if (chart != null) {
-                product.setSizeChartTitle(chart.getChartTitle());
-                try {
-                    @SuppressWarnings("unchecked")
-                    List<String> columns = objectMapper.readValue(chart.getColumnsJson(), List.class);
-                    product.setSizeChartColumns(columns);
-                    @SuppressWarnings("unchecked")
-                    List<List<String>> rows = objectMapper.readValue(chart.getRowsJson(), List.class);
-                    product.setSizeChartRows(rows);
-                } catch (Exception e) {
-                    log.warn("解析尺寸表JSON失败, productId={}", id, e);
-                }
+        // 3. 拿不到锁：自旋等待有限次（避免无限递归导致栈溢出 / 无超时阻塞）
+        return spinRetryDetail(key, id);
+    }
+
+    /** 读商品详情缓存（JSON 字符串 → Product） */
+    private Product readDetailCache(String key) {
+        String json = stringRedisTemplate.opsForValue().get(key);
+        if (json == null || CACHE_NULL_VALUE.equals(json)) return null;
+        try {
+            return objectMapper.readValue(json, Product.class);
+        } catch (Exception e) {
+            log.warn("商品详情缓存反序列化失败，回源DB, key={}", key, e);
+            return null;
+        }
+    }
+
+    /** 判断缓存是否为"商品不存在"占位 */
+    private boolean isNullCached(String key) {
+        return CACHE_NULL_VALUE.equals(stringRedisTemplate.opsForValue().get(key));
+    }
+
+    /** 写商品详情缓存（Product → JSON 字符串） */
+    private void writeDetailCache(String key, Product product, long ttlMinutes) {
+        try {
+            stringRedisTemplate.opsForValue()
+                    .set(key, objectMapper.writeValueAsString(product), ttlMinutes, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("商品详情缓存序列化失败, key={}", key, e);
+        }
+    }
+
+    /** 未抢到锁时自旋重试，超限后兜底直查 DB */
+    private Product spinRetryDetail(String key, Long id) {
+        for (int i = 0; i < LOCK_RETRY_TIMES; i++) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            Product cached = readDetailCache(key);
+            if (cached != null) return cached;
+            if (isNullCached(key)) return null;
+        }
+        // 兜底：高并发下不再无限等锁，直接查库（保证请求不被卡死）
+        return loadProductFromDB(id);
+    }
+
+    // 提取查询方法（保持原有逻辑干净）
+    private Product loadProductFromDB(Long id) {
+        Product product = productMapper.selectById(id);
+        if (product == null) return null;
+
+        // 填充商家
+        User merchant = userMapper.selectById(product.getMerchantId());
+        if (merchant != null) {
+            product.setMerchantName(merchant.getNickname());
+            product.setMerchantAvatar(merchant.getAvatar());
+        }
+
+        // 填充规格
+        product.setSpecs(productSpecMapper.selectList(
+                new LambdaQueryWrapper<ProductSpec>()
+                        .eq(ProductSpec::getProductId, id)
+                        .orderByAsc(ProductSpec::getSortOrder)));
+
+        // 填充 SKU
+        List<ProductSku> skuList = productSkuMapper.selectList(
+                new LambdaQueryWrapper<ProductSku>()
+                        .eq(ProductSku::getProductId, id));
+        product.setSkus(skuList);
+
+        // 计算销量
+        if (skuList != null) {
+            int totalSales = skuList.stream()
+                    .filter(s -> s.getSales() != null)
+                    .mapToInt(ProductSku::getSales)
+                    .sum();
+            product.setSales(totalSales);
+        }
+
+        // 尺寸表
+        ProductSizeChart chart = productSizeChartMapper.selectOne(
+                new LambdaQueryWrapper<ProductSizeChart>()
+                        .eq(ProductSizeChart::getProductId, id));
+        if (chart != null) {
+            product.setSizeChartTitle(chart.getChartTitle());
+            try {
+                List<String> columns = objectMapper.readValue(chart.getColumnsJson(), List.class);
+                product.setSizeChartColumns(columns);
+                List<List<String>> rows = objectMapper.readValue(chart.getRowsJson(), List.class);
+                product.setSizeChartRows(rows);
+            } catch (Exception e) {
+                log.warn("解析尺寸表失败, productId={}", id, e);
             }
         }
         return product;
@@ -459,7 +548,7 @@ public class ProductServiceImpl implements ProductService {
                 }
                 if (changed) {
                     productMapper.updateById(p);
-                    redisTemplate.delete(CACHE_DETAIL + p.getId());
+                    stringRedisTemplate.delete(CACHE_DETAIL + p.getId());
                     syncCount++;
                 }
             }
@@ -472,14 +561,57 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private void evictDetailCache(Long id) {
-        redisTemplate.delete(CACHE_DETAIL + id);
-        redisTemplate.delete(CACHE_IMAGES + id);
+        stringRedisTemplate.delete(CACHE_DETAIL + id);
+        stringRedisTemplate.delete(CACHE_IMAGES + id);
     }
 
     private void evictHotCache() {
-        Set<String> keys = redisTemplate.keys(CACHE_HOT + "*");
+        Set<String> keys = stringRedisTemplate.keys(CACHE_HOT + "*");
         if (keys != null && !keys.isEmpty()) {
-            redisTemplate.delete(keys);
+            stringRedisTemplate.delete(keys);
+        }
+    }
+
+    @Override
+    public Integer incrementViewCount(Long productId) {
+        // Redis INCR 原子自增（高并发下不丢计数、无锁竞争）
+        Long delta = stringRedisTemplate.opsForValue().increment(CACHE_VIEW + productId);
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            return delta != null ? delta.intValue() : 0;
+        }
+        // 实时浏览量 = DB 累计值 + Redis 待落库增量
+        int dbViews = product.getViews() == null ? 0 : product.getViews();
+        return dbViews + (delta == null ? 0 : delta.intValue());
+    }
+
+    /**
+     * 浏览量异步落库（每5分钟）：Redis INCR 计数 → 合并到 product.views → 清空计数键。
+     * 使用 GETDEL 原子"取值+删除"，避免并发重复累加；异常时键保留，下轮重试。
+     */
+    @Scheduled(cron = "0 */5 * * * ?")
+    public void flushViewCounts() {
+        Set<String> keys = stringRedisTemplate.keys(CACHE_VIEW + "*");
+        if (keys == null || keys.isEmpty()) return;
+        int updated = 0;
+        for (String key : keys) {
+            try {
+                Long delta = Long.valueOf(stringRedisTemplate.opsForValue().getAndDelete(key));
+                if (delta == null || delta <= 0) continue;
+                Long productId = Long.parseLong(key.substring(CACHE_VIEW.length()));
+                Product product = productMapper.selectById(productId);
+                if (product == null) continue;
+                int newViews = (product.getViews() == null ? 0 : product.getViews()) + delta.intValue();
+                productMapper.updateViews(productId, newViews);
+                // 详情缓存中的 views 快照已过期，删除以便下次读取时重建
+                stringRedisTemplate.delete(CACHE_DETAIL + productId);
+                updated++;
+            } catch (Exception e) {
+                log.warn("浏览量落库失败 key={}", key, e);
+            }
+        }
+        if (updated > 0) {
+            log.info("浏览量异步落库完成，共更新 {} 个商品", updated);
         }
     }
 }
