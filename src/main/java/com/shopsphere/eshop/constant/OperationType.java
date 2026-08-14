@@ -16,6 +16,11 @@ public final class OperationType {
     public static final String DELETE_COUPON = "DELETE_COUPON";
     public static final String CHANGE_STATUS = "CHANGE_STATUS";
 
+    // 节日活动计划
+    public static final String ADD_FESTIVAL_PLAN = "ADD_FESTIVAL_PLAN";
+    public static final String UPDATE_FESTIVAL_PLAN = "UPDATE_FESTIVAL_PLAN";
+    public static final String DELETE_FESTIVAL_PLAN = "DELETE_FESTIVAL_PLAN";
+
     // 退款
     public static final String AUDIT_REFUND = "AUDIT_REFUND";
 
