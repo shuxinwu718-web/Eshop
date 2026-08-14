@@ -30,15 +30,14 @@ public interface ProductMapper extends BaseMapper<Product> {
     int updateViews(@Param("id") Long id, @Param("views") Integer views);
 
     @Select("SELECT p.id, p.name, p.price, p.cover_image AS coverImage, p.description, " +
-           "COALESCE(SUM(CASE WHEN o.order_status >= 1 AND o.order_status < 4 THEN oi.quantity ELSE 0 END), 0) AS sales, " +
-           "ROUND(COALESCE(AVG(pc.rating), 0), 1) AS avgRating " +
+           "COALESCE(sk.sales, 0) AS sales, " +
+           "ROUND(COALESCE(pc.avgRating, 0), 1) AS avgRating " +
            "FROM product p " +
-           "LEFT JOIN order_item oi ON p.id = oi.product_id " +
-           "LEFT JOIN order_shipment os ON oi.shipment_id = os.id " +
-           "LEFT JOIN `order` o ON os.order_id = o.id " +
-           "LEFT JOIN product_comment pc ON p.id = pc.product_id AND pc.status = 1 " +
+           "LEFT JOIN (SELECT product_id, SUM(COALESCE(sales, 0)) AS sales " +
+           "           FROM product_sku GROUP BY product_id) sk ON p.id = sk.product_id " +
+           "LEFT JOIN (SELECT product_id, AVG(rating) AS avgRating " +
+           "           FROM product_comment WHERE status = 1 GROUP BY product_id) pc ON p.id = pc.product_id " +
            "WHERE p.deleted = 0 AND p.status = 1 " +
-           "GROUP BY p.id " +
            "ORDER BY sales DESC, avgRating DESC " +
            "LIMIT #{limit}")
     List<HotProductVO> selectHotProducts(int limit);
