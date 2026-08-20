@@ -13,6 +13,7 @@ import com.shopsphere.eshop.mapper.UserCouponMapper;
 import com.shopsphere.eshop.mapper.UserSigninRecordMapper;
 import com.shopsphere.eshop.mapper.UserSigninRewardMapper;
 import com.shopsphere.eshop.service.UserCouponService;
+import com.shopsphere.eshop.vo.AvailableCouponVO;
 import com.shopsphere.eshop.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,17 @@ public class UserCouponServiceImpl implements UserCouponService {
     }
 
     @Override
+    public List<AvailableCouponVO> getAvailableCouponsWithClaim(Long userId, Integer type, String keyword, String timeStatus) {
+        List<Coupon> coupons = getAvailableCoupons(type, keyword, timeStatus);
+        return coupons.stream().map(c -> {
+            AvailableCouponVO vo = new AvailableCouponVO();
+            BeanUtils.copyProperties(c, vo);
+            vo.setClaimedCount(userId == null ? 0 : countUsable(userId, c.getId()));
+            return vo;
+        }).collect(Collectors.toList());
+    }
+
+    @Override
     public List<UserCouponVO> getMyCoupons(Long userId, Integer status) {
         // 1. 根据状态查询用户券记录
         LambdaQueryWrapper<UserCoupon> wrapper = new LambdaQueryWrapper<>();
@@ -114,6 +126,25 @@ public class UserCouponServiceImpl implements UserCouponService {
     }
 
     @Override
+    public int countUsable(Long userId, Long couponId) {
+        if (userId == null || couponId == null) return 0;
+        LocalDateTime now = LocalDateTime.now();
+        Coupon coupon = couponMapper.selectById(couponId);
+        List<UserCoupon> existing = userCouponMapper.selectList(
+                new LambdaQueryWrapper<UserCoupon>()
+                        .eq(UserCoupon::getUserId, userId)
+                        .eq(UserCoupon::getCouponId, couponId)
+        );
+        int usable = 0;
+        for (UserCoupon uc : existing) {
+            if (uc.getStatus() != null && uc.getStatus() != 0) continue; // 已使用(1)/已过期(2)
+            if (coupon != null && coupon.getEndTime() != null && coupon.getEndTime().isBefore(now)) continue; // 模板已过期
+            usable++;
+        }
+        return usable;
+    }
+
+    @Override
     @Transactional
     public void receiveCoupon(Long userId, Long couponId) {
         Coupon coupon = couponMapper.selectById(couponId);
@@ -125,12 +156,10 @@ public class UserCouponServiceImpl implements UserCouponService {
         if (obtainType != null && obtainType != 0) {
             throw new BusinessException("该优惠券不能直接领取");
         }
-        // 先检查领取上限（用户未达上限才允许扣库存）
-        LambdaQueryWrapper<UserCoupon> countWrapper = new LambdaQueryWrapper<>();
-        countWrapper.eq(UserCoupon::getUserId, userId)
-                .eq(UserCoupon::getCouponId, couponId);
-        long count = userCouponMapper.selectCount(countWrapper);
-        if (count >= coupon.getLimitPerUser()) {
+        // 先检查领取上限：仅统计「当前仍持有且可使用（未使用且未过期）」的券，
+        // 已使用(1)/已过期(2 或模板已过期)的券不占用名额，避免过期券被误判为已拥有
+        int usableCount = countUsable(userId, couponId);
+        if (usableCount >= coupon.getLimitPerUser()) {
             throw new BusinessException("您已达到领取上限");
         }
         // 原子扣减库存：仅当库存充足时扣减成功，防止并发超发
@@ -284,14 +313,17 @@ public class UserCouponServiceImpl implements UserCouponService {
             throw new BusinessException("连续签到天数不足，还需" + (plan.getRequiredSigninDays() - consecutiveDays) + "天");
         }
 
-        // 检查是否已领取（通过 rewardId=plan.couponId 和 rewardType=2 标记节日领取）
-        long claimed = signinRewardMapper.selectCount(
-                new LambdaQueryWrapper<UserSigninReward>()
-                        .eq(UserSigninReward::getUserId, userId)
-                        .eq(UserSigninReward::getRewardId, plan.getCouponId())
-                        .eq(UserSigninReward::getRewardType, 2)
-        );
-        if (claimed > 0) {
+        // 检查限领与是否已拥有：仅「未使用且未过期」的券算作已拥有，
+        // 已使用/已过期的券不占用名额，允许再次领取
+        Coupon coupon = couponMapper.selectById(plan.getCouponId());
+        if (coupon == null || coupon.getStatus() != 1) {
+            throw new BusinessException("活动优惠券不存在或已停用");
+        }
+        int usableCount = countUsable(userId, plan.getCouponId());
+        if (usableCount >= coupon.getLimitPerUser()) {
+            throw new BusinessException("您已达到该优惠券的领取上限");
+        }
+        if (usableCount > 0) {
             throw new BusinessException("已领取过该活动优惠券");
         }
 

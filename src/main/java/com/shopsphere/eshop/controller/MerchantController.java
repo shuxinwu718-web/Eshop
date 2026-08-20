@@ -302,12 +302,26 @@ public class MerchantController {
             dailyOrderMap.put(dateStr, new HashSet<>());
         }
 
+        // 优惠分摊：整单优惠按各发货单金额占比分摊，得到商家实际应收金额
         for (OrderShipment shipment : validShipments) {
             BigDecimal amount = shipment.getTotalAmount() != null ? shipment.getTotalAmount() : BigDecimal.ZERO;
+            Order order = orderMap.get(shipment.getOrderId());
+            if (order != null) {
+                BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+                BigDecimal orderPaid = order.getPayAmount() != null ? order.getPayAmount() : BigDecimal.ZERO;
+                // 整单优惠 = 原价 - 实付（含优惠券扣减）
+                BigDecimal discount = orderTotal.subtract(orderPaid);
+                if (discount.compareTo(BigDecimal.ZERO) > 0 && orderTotal.compareTo(BigDecimal.ZERO) > 0) {
+                    // 该发货单分摊的优惠 = 优惠总额 * (发货单金额 / 订单原价)
+                    BigDecimal share = discount.multiply(amount)
+                            .divide(orderTotal, 4, RoundingMode.HALF_UP);
+                    amount = amount.subtract(share);
+                    if (amount.compareTo(BigDecimal.ZERO) < 0) amount = BigDecimal.ZERO;
+                }
+            }
             totalSales = totalSales.add(amount);
             orderIdSet.add(shipment.getOrderId());
 
-            Order order = orderMap.get(shipment.getOrderId());
             if (order != null && order.getCreateTime() != null) {
                 String dateKey = order.getCreateTime().toLocalDate().format(fmt);
                 dailySalesMap.merge(dateKey, amount, BigDecimal::add);

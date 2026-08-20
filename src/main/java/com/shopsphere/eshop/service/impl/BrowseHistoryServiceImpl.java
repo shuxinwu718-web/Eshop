@@ -13,7 +13,7 @@ public class BrowseHistoryServiceImpl implements BrowseHistoryService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private static final String HISTORY_KEY_PREFIX = "browse:history:";
-    private static final int MAX_SIZE = 20;
+    private static final int MAX_SIZE = 200;
     private static final long EXPIRE_DAYS = 7;
 
     public BrowseHistoryServiceImpl(RedisTemplate<String, Object> redisTemplate) {
@@ -38,14 +38,13 @@ public class BrowseHistoryServiceImpl implements BrowseHistoryService {
     }
 
     /**
-     * 获取最近浏览的商品ID列表（按时间倒序）
+     * 获取全部浏览的商品ID列表（按时间倒序）
      * @param userId 用户ID
-     * @param limit 获取条数
      * @return 商品ID列表
      */
-    public List<Long> getRecentProductIds(Long userId, int limit) {
+    public List<Long> getAllProductIds(Long userId) {
         String key = HISTORY_KEY_PREFIX + userId;
-        List<Object> list = redisTemplate.opsForList().range(key, 0, limit - 1);
+        List<Object> list = redisTemplate.opsForList().range(key, 0, -1);
         if (list == null || list.isEmpty()) {
             return List.of();
         }

@@ -11,6 +11,7 @@ import com.shopsphere.eshop.dto.ProductPageQueryDTO;
 import com.shopsphere.eshop.entity.Category;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.mapper.CategoryMapper;
+import com.shopsphere.eshop.mapper.ProductCommentMapper;
 import com.shopsphere.eshop.service.ProductService;
 import com.shopsphere.eshop.service.ProductSyncService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @RestController
@@ -46,6 +48,7 @@ public class ProductSearchController {
     private final ProductSyncService productSyncService;
     private final CategoryMapper categoryMapper;
     private final ProductService productService;
+    private final ProductCommentMapper productCommentMapper;
 
     /** Elasticsearch 开关：false 直接走 MySQL 降级搜索 */
     @Value("${elasticsearch.enabled:false}")
@@ -148,16 +151,20 @@ public class ProductSearchController {
         NativeQuery query = nativeQueryBuilder.build();
         SearchHits<ProductDocument> hits = esTemplate.search(query, ProductDocument.class);
 
-        ProductSearchVO vo = new ProductSearchVO();
-        vo.setTotal(hits.getTotalHits());
-        vo.setList(hits.getSearchHits().stream()
+        List<SearchResultItem> items = hits.getSearchHits().stream()
                 .map(hit -> {
                     SearchResultItem item = new SearchResultItem();
                     item.setProduct(hit.getContent());
                     item.setHighlights(hit.getHighlightFields());
                     return item;
                 })
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList());
+        // 实时填充用户评分平均数（索引中不存储，避免评分更新延迟）
+        fillAvgRatings(items);
+
+        ProductSearchVO vo = new ProductSearchVO();
+        vo.setTotal(hits.getTotalHits());
+        vo.setList(items);
 
         return vo;
     }
@@ -177,15 +184,48 @@ public class ProductSearchController {
         dto.setSortBy(sortBy);
 
         Page<Product> result = productService.pageQuery(dto);
-        ProductSearchVO vo = new ProductSearchVO();
-        vo.setTotal(result.getTotal());
-        vo.setList(result.getRecords().stream().map(p -> {
+        List<SearchResultItem> items = result.getRecords().stream().map(p -> {
             SearchResultItem item = new SearchResultItem();
             item.setProduct(convertToDocument(p));
             item.setHighlights(new HashMap<>()); // 降级无高亮
             return item;
-        }).collect(Collectors.toList()));
+        }).collect(Collectors.toList());
+        // 实时填充用户评分平均数
+        fillAvgRatings(items);
+
+        ProductSearchVO vo = new ProductSearchVO();
+        vo.setTotal(result.getTotal());
+        vo.setList(items);
         return vo;
+    }
+
+    /** 批量查询商品平均评分并填充到搜索结果（无评分返回 null，前端可兜底展示） */
+    private void fillAvgRatings(List<SearchResultItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Long> ids = items.stream()
+                .map(item -> item.getProduct() != null ? item.getProduct().getId() : null)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> rows = productCommentMapper.selectAvgRatingByProductIds(ids);
+        Map<Long, Double> ratingMap = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object pid = row.get("productId");
+            Object avg = row.get("avgRating");
+            if (pid != null && avg != null) {
+                ratingMap.put(((Number) pid).longValue(), ((Number) avg).doubleValue());
+            }
+        }
+        for (SearchResultItem item : items) {
+            if (item.getProduct() != null && item.getProduct().getId() != null) {
+                item.getProduct().setAvgRating(ratingMap.get(item.getProduct().getId()));
+            }
+        }
     }
 
     /** Product → ProductDocument（与 ES 文档同构，createTime 转 epoch） */

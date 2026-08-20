@@ -36,7 +36,9 @@ public interface ProductMapper extends BaseMapper<Product> {
            "LEFT JOIN (SELECT product_id, SUM(COALESCE(sales, 0)) AS sales " +
            "           FROM product_sku GROUP BY product_id) sk ON p.id = sk.product_id " +
            "LEFT JOIN (SELECT product_id, AVG(rating) AS avgRating " +
-           "           FROM product_comment WHERE status = 1 GROUP BY product_id) pc ON p.id = pc.product_id " +
+           "           FROM product_comment " +
+           "           WHERE status = 1 AND deleted = 0 AND parent_id = 0 AND rating > 0 " +
+           "           GROUP BY product_id) pc ON p.id = pc.product_id " +
            "WHERE p.deleted = 0 AND p.status = 1 " +
            "ORDER BY sales DESC, avgRating DESC " +
            "LIMIT #{limit}")

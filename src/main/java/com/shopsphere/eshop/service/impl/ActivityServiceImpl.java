@@ -75,12 +75,13 @@ public class ActivityServiceImpl implements ActivityService {
         Coupon rewardCoupon = null;
         for (MilestoneDef milestone : MILESTONES) {
             if (milestone.getCouponId() != null && consecutiveDays == milestone.getDays()) {
-                boolean alreadyClaimed = signinRewardMapper.selectCount(
-                        new LambdaQueryWrapper<UserSigninReward>()
-                                .eq(UserSigninReward::getUserId, userId)
-                                .eq(UserSigninReward::getSigninConsecutiveDays, consecutiveDays)
-                ) > 0;
-                if (!alreadyClaimed) {
+                // 仅「未使用且未过期」的券算作已拥有；已使用/已过期的券可再次领取（每次发放仍记录 reward 历史）
+                int usable = userCouponService.countUsable(userId, milestone.getCouponId());
+                Coupon coupon = couponMapper.selectById(milestone.getCouponId());
+                boolean claimed = usable > 0
+                        || (coupon != null && coupon.getStatus() != 1)
+                        || (coupon != null && usable >= coupon.getLimitPerUser());
+                if (!claimed) {
                     userCouponService.grantCoupon(userId, milestone.getCouponId());
                     UserSigninReward reward = new UserSigninReward();
                     reward.setUserId(userId);
@@ -89,7 +90,7 @@ public class ActivityServiceImpl implements ActivityService {
                     reward.setSigninConsecutiveDays(consecutiveDays);
                     reward.setCreateTime(LocalDateTime.now());
                     signinRewardMapper.insert(reward);
-                    rewardCoupon = couponMapper.selectById(milestone.getCouponId());
+                    rewardCoupon = coupon;
                     log.info("用户{}连续签到{}天，获得优惠券{}", userId, consecutiveDays, milestone.getCouponId());
                 }
                 break;
@@ -184,15 +185,6 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     public List<SigninMilestoneVO> getMilestones(Long userId) {
-        // 查询用户已领取的奖励
-        List<UserSigninReward> claimedRewards = signinRewardMapper.selectList(
-                new LambdaQueryWrapper<UserSigninReward>()
-                        .eq(UserSigninReward::getUserId, userId)
-        );
-        Set<Integer> claimedDays = claimedRewards.stream()
-                .map(UserSigninReward::getSigninConsecutiveDays)
-                .collect(Collectors.toSet());
-
         // 获取当前连续天数
         Map<String, Object> status = getSignInStatus(userId);
         int consecutiveDays = (int) status.get("consecutiveDays");
@@ -205,10 +197,12 @@ public class ActivityServiceImpl implements ActivityService {
             vo.setRewardType(def.getCouponId() != null ? "coupon" : "none");
             vo.setRewardId(def.getCouponId());
             vo.setIcon(def.getIcon());
-            if (claimedDays.contains(def.getDays())) {
-                vo.setStatus(2); // 已领取
+            // 仅「未使用且未过期」的券算作已领取；已使用/已过期的券视为可再次领取
+            int usable = def.getCouponId() != null ? userCouponService.countUsable(userId, def.getCouponId()) : 0;
+            if (usable > 0) {
+                vo.setStatus(2); // 已领取（持有可用券）
             } else if (consecutiveDays >= def.getDays()) {
-                vo.setStatus(1); // 已达成
+                vo.setStatus(1); // 已达成，可领取
             } else {
                 vo.setStatus(0); // 未解锁
             }
@@ -243,19 +237,14 @@ public class ActivityServiceImpl implements ActivityService {
             consecutiveDays = (int) status.get("consecutiveDays");
         }
 
-        // 查询用户已领取的奖励（含常规签到和节日活动，游客视为未领取）
+        // 查询用户已拥有的有效券（仅未使用且未过期算已领取，游客视为未领取）
         Map<Long, Boolean> claimedMap = new HashMap<>();
         for (FestivalCouponPlan plan : plans) {
-            long count = 0;
-            if (userId != null) {
-                count = signinRewardMapper.selectCount(
-                        new LambdaQueryWrapper<UserSigninReward>()
-                                .eq(UserSigninReward::getUserId, userId)
-                                .eq(UserSigninReward::getRewardId, plan.getCouponId())
-                                .in(UserSigninReward::getRewardType, 1, 2)
-                );
+            boolean claimed = false;
+            if (userId != null && plan.getCouponId() != null) {
+                claimed = userCouponService.countUsable(userId, plan.getCouponId()) > 0;
             }
-            claimedMap.put(plan.getId(), count > 0);
+            claimedMap.put(plan.getId(), claimed);
         }
 
         List<FestivalCouponVO> result = new ArrayList<>();

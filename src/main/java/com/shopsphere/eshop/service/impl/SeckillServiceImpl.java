@@ -10,6 +10,7 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.SeckillService;
+import com.shopsphere.eshop.service.UserCouponService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -46,6 +47,7 @@ public class SeckillServiceImpl implements SeckillService {
     private final OrderShipmentMapper orderShipmentMapper;
     private final AddressMapper addressMapper;
     private final NoticeService noticeService;
+    private final UserCouponService userCouponService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -313,12 +315,25 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("关联优惠券已停用");
         }
 
-        // 2. 检查重复领取（早于库存扣减，避免浪费 Redis 操作）
+        // 2. 检查限领与是否已持有：仅「未使用且未过期」的券算作已拥有，
+        //    已使用/已过期的券不占用名额，允许再次参与秒杀
         String usersKey = USERS_KEY + sessionId;
+        int usable = userCouponService.countUsable(userId, session.getCouponId());
+        Integer limit = coupon.getLimitPerUser() != null ? coupon.getLimitPerUser() : 1;
+        if (usable >= limit) {
+            log.warn("秒杀失败 - 超过限领数量, sessionId={}, userId={}, usable={}, limit={}", sessionId, userId, usable, limit);
+            throw new BusinessException("您已达到该优惠券的领取上限");
+        }
+        if (usable > 0) {
+            log.warn("秒杀失败 - 已持有有效券, sessionId={}, userId={}", sessionId, userId);
+            throw new BusinessException("您已持有该秒杀优惠券，请先使用后再参与");
+        }
+
+        // 2a. 检查重复领取（Redis 防并发；若旧券已过期/已使用，允许重新参与并移除旧记录）
         Boolean alreadyClaimed = stringRedisTemplate.opsForSet().isMember(usersKey, String.valueOf(userId));
         if (Boolean.TRUE.equals(alreadyClaimed)) {
-            log.warn("秒杀失败 - 重复领取, sessionId={}, userId={}", sessionId, userId);
-            throw new BusinessException("您已领取过该秒杀券");
+            stringRedisTemplate.opsForSet().remove(usersKey, String.valueOf(userId));
+            log.info("秒杀 - 用户{}旧券已失效，重新参与场次{}", userId, sessionId);
         }
 
         // 3. Redis 扣减库存（原子操作）

@@ -43,4 +43,7 @@ public class ProductDocument {
     private Integer sales;
 
     private Long createTime; // 存储为时间戳（epoch millis）
+
+    /** 用户评分平均数（由 product_comment 实时聚合，不进索引） */
+    private Double avgRating;
 }

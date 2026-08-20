@@ -152,11 +152,22 @@ public class OrderServiceImpl implements OrderService {
                             payAmount = totalAmount.subtract(coupon.getValue());
                             if (payAmount.compareTo(BigDecimal.ZERO) < 0) payAmount = BigDecimal.ZERO;
                         } else if (coupon.getType() == 1) { // 折扣
-                            BigDecimal discount = coupon.getValue().divide(BigDecimal.valueOf(10));
-                            payAmount = totalAmount.multiply(discount);
-                            if (coupon.getMaxDiscount() != null && payAmount.compareTo(coupon.getMaxDiscount()) > 0) {
-                                payAmount = coupon.getMaxDiscount();
+                            // value 表示折扣（如 8.5 即 8.5 折），折算比例 = value/10
+                            BigDecimal discountedPay = totalAmount
+                                    .multiply(coupon.getValue().divide(BigDecimal.valueOf(10)));
+                            // max_discount 表示「最高优惠金额」上限：优惠额超过则封顶
+                            if (coupon.getMaxDiscount() != null
+                                    && coupon.getMaxDiscount().compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal saved = totalAmount.subtract(discountedPay);
+                                if (saved.compareTo(coupon.getMaxDiscount()) > 0) {
+                                    payAmount = totalAmount.subtract(coupon.getMaxDiscount());
+                                } else {
+                                    payAmount = discountedPay;
+                                }
+                            } else {
+                                payAmount = discountedPay;
                             }
+                            if (payAmount.compareTo(BigDecimal.ZERO) < 0) payAmount = BigDecimal.ZERO;
                         }
                     } // else: 不满足门槛，忽略该券，仍使用原价
                 }

@@ -4,7 +4,7 @@ import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
 import com.shopsphere.eshop.dto.CouponReceiveDTO;
 import com.shopsphere.eshop.dto.FestivalCouponClaimDTO;
-import com.shopsphere.eshop.entity.Coupon;
+import com.shopsphere.eshop.vo.AvailableCouponVO;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,17 +23,18 @@ public class UserCouponController {
 
     private final UserCouponService userCouponService;
     /**
-     * 领券中心 - 可领取的优惠券列表
+     * 领券中心 - 可领取的优惠券列表（附带当前用户已领取数量）
      * @param type 优惠券类型（0=满减, 1=折扣），可选
      * @param keyword 搜索关键词，可选
      * @param timeStatus 时间状态（ongoing=进行中, upcoming=即将开始, all=全部），默认 ongoing
      */
     @GetMapping("/available")
-    public Result<List<Coupon>> getAvailableCoupons(
+    public Result<List<AvailableCouponVO>> getAvailableCoupons(
             @RequestParam(required = false) Integer type,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false, defaultValue = "ongoing") String timeStatus) {
-        return Result.success(userCouponService.getAvailableCoupons(type, keyword, timeStatus));
+            @RequestParam(required = false, defaultValue = "ongoing") String timeStatus,
+            @CurrentUserId Long userId) {
+        return Result.success(userCouponService.getAvailableCouponsWithClaim(userId, type, keyword, timeStatus));
     }
 
     /**

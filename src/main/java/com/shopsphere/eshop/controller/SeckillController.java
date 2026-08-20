@@ -16,6 +16,7 @@ import com.shopsphere.eshop.mapper.CouponMapper;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.mapper.UserCouponMapper;
 import com.shopsphere.eshop.service.SeckillService;
+import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.vo.SeckillSessionVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,6 +49,7 @@ public class SeckillController {
     private final SeckillService seckillService;
     private final CouponMapper couponMapper;
     private final UserCouponMapper userCouponMapper;
+    private final UserCouponService userCouponService;
     private final ProductMapper productMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
@@ -126,10 +128,19 @@ public class SeckillController {
             }
 
             // 当前用户是否已抢购/领取（未登录时为 false）
+            // 秒杀券场次：仅「未使用且未过期」的券算作已领取（已使用/过期可再次参与）
+            // 秒杀商品场次：以 Redis 场次记录为准（一次性抢购）
             if (userId != null) {
-                Boolean member = stringRedisTemplate.opsForSet()
-                        .isMember(USERS_KEY + s.getId(), String.valueOf(userId));
-                vo.setIsSeckilled(Boolean.TRUE.equals(member));
+                boolean isSeckilled;
+                if (s.getSeckillType() == null || s.getSeckillType() == 0) {
+                    isSeckilled = s.getCouponId() != null
+                            && userCouponService.countUsable(userId, s.getCouponId()) > 0;
+                } else {
+                    Boolean member = stringRedisTemplate.opsForSet()
+                            .isMember(USERS_KEY + s.getId(), String.valueOf(userId));
+                    isSeckilled = Boolean.TRUE.equals(member);
+                }
+                vo.setIsSeckilled(isSeckilled);
             }
 
             return vo;

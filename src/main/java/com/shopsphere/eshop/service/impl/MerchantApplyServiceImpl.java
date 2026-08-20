@@ -16,6 +16,8 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -27,12 +29,17 @@ public class MerchantApplyServiceImpl implements MerchantApplyService {
 
     @Override
     public void submitApply(Long userId, MerchantApplySubmitDTO dto) {
-        // 检查是否已有申请正在处理或已通过
+        // 仅当存在「待审核」申请时拦截；已拒绝(2)/历史数据不阻塞重新申请
         LambdaQueryWrapper<MerchantApply> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MerchantApply::getUserId, userId)
-                .in(MerchantApply::getStatus, 0, 1); // 待审核或已通过
+                .eq(MerchantApply::getStatus, 0); // 待审核
         if (applyMapper.selectCount(wrapper) > 0) {
-            throw new BusinessException("您已有申请正在处理或已是商家");
+            throw new BusinessException("您已有申请正在处理中，请等待审核");
+        }
+        // 已是商家则无需重复申请
+        User user = userMapper.selectById(userId);
+        if (user != null && "MERCHANT".equals(user.getRole())) {
+            throw new BusinessException("您已是商家，无需重复申请");
         }
 
         MerchantApply apply = new MerchantApply();
@@ -90,13 +97,17 @@ public class MerchantApplyServiceImpl implements MerchantApplyService {
 
     @Override
     public MerchantApplyVO getMyApply(Long userId) {
-        // 查询申请记录
-        MerchantApply apply = applyMapper.selectOne(
-                new LambdaQueryWrapper<MerchantApply>().eq(MerchantApply::getUserId, userId)
+        // 同一用户可能存在多条历史申请记录，取最新一条展示
+        List<MerchantApply> applies = applyMapper.selectList(
+                new LambdaQueryWrapper<MerchantApply>()
+                        .eq(MerchantApply::getUserId, userId)
+                        .orderByDesc(MerchantApply::getId)
+                        .last("LIMIT 1")
         );
-        if (apply == null) {
+        if (applies.isEmpty()) {
             throw new BusinessException("未找到入驻信息");
         }
+        MerchantApply apply = applies.get(0);
         MerchantApplyVO vo = convertToVO(apply);
         // 查询用户状态
         User user = userMapper.selectById(userId);
