@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -228,26 +229,62 @@ public class GroupBuyServiceImpl implements GroupBuyService {
         if (myMembers.isEmpty()) {
             return Collections.emptyList();
         }
+
+        // ========== 批量收集外键数据（selectBatchIds + 内存 Map），消除逐条 N+1 ==========
+        List<Long> groupIds = myMembers.stream().map(GroupBuyMember::getGroupId).distinct().collect(Collectors.toList());
+        List<Long> orderIds = myMembers.stream().map(GroupBuyMember::getOrderId).distinct().collect(Collectors.toList());
+        Map<Long, GroupBuyGroup> groupMap = toMapById(groupMapper.selectBatchIds(groupIds), GroupBuyGroup::getId);
+        Map<Long, GroupBuyActivity> activityMap = toMapById(activityMapper.selectBatchIds(
+                groupMap.values().stream().map(GroupBuyGroup::getActivityId).distinct().collect(Collectors.toList())),
+                GroupBuyActivity::getId);
+        Map<Long, Product> productMap = toMapById(productMapper.selectBatchIds(
+                activityMap.values().stream().map(GroupBuyActivity::getProductId).distinct().collect(Collectors.toList())),
+                Product::getId);
+        Map<Long, ProductSku> skuMap = toMapById(productSkuMapper.selectBatchIds(
+                activityMap.values().stream().map(GroupBuyActivity::getSkuId)
+                        .filter(Objects::nonNull).distinct().collect(Collectors.toList())),
+                ProductSku::getId);
+        Map<Long, Order> orderMap = toMapById(orderMapper.selectBatchIds(orderIds), Order::getId);
+
+        // 相关团全部成员（含本人），一次查出后内存分组（id 升序保证头像顺序稳定）
+        List<GroupBuyMember> allMembers = memberMapper.selectList(
+                new LambdaQueryWrapper<GroupBuyMember>()
+                        .in(GroupBuyMember::getGroupId, groupIds)
+                        .orderByAsc(GroupBuyMember::getId));
+        Map<Long, List<GroupBuyMember>> membersByGroup = allMembers.stream()
+                .collect(Collectors.groupingBy(GroupBuyMember::getGroupId));
+
+        // 开团人 + 成员头像用户，一次批量查出
+        Set<Long> userNeedIds = new HashSet<>();
+        groupMap.values().forEach(g -> {
+            if (g.getLeaderId() != null) {
+                userNeedIds.add(g.getLeaderId());
+            }
+        });
+        allMembers.forEach(m -> userNeedIds.add(m.getUserId()));
+        Map<Long, User> userMap = userNeedIds.isEmpty() ? Collections.emptyMap()
+                : toMapById(userMapper.selectBatchIds(userNeedIds), User::getId);
+
         List<GroupBuyGroupVO> list = new ArrayList<>();
         for (GroupBuyMember m : myMembers) {
-            GroupBuyGroup g = groupMapper.selectById(m.getGroupId());
+            GroupBuyGroup g = groupMap.get(m.getGroupId());
             if (g == null) {
                 continue;
             }
-            GroupBuyActivity a = activityMapper.selectById(g.getActivityId());
+            GroupBuyActivity a = activityMap.get(g.getActivityId());
             if (a == null) {
                 continue;
             }
-            GroupBuyGroupVO vo = toGroupVO(g, a, userId);
+            GroupBuyGroupVO vo = toGroupVO(g, a, userId, membersByGroup.get(g.getId()), userMap);
             vo.setIsJoined(true);
             // 「我的拼团记录」展示字段
-            Product product = productMapper.selectById(a.getProductId());
+            Product product = productMap.get(a.getProductId());
             if (product != null) {
                 vo.setProductName(product.getName());
                 vo.setCoverImage(product.getCoverImage());
             }
             if (a.getSkuId() != null) {
-                ProductSku sku = productSkuMapper.selectById(a.getSkuId());
+                ProductSku sku = skuMap.get(a.getSkuId());
                 if (sku != null && sku.getSpecs() != null) {
                     try {
                         @SuppressWarnings("unchecked")
@@ -261,12 +298,20 @@ public class GroupBuyServiceImpl implements GroupBuyService {
                 }
             }
             vo.setOrderId(m.getOrderId());
-            Order order = orderMapper.selectById(m.getOrderId());
+            Order order = orderMap.get(m.getOrderId());
             vo.setOrderStatus(order != null ? order.getOrderStatus() : null);
             vo.setCreateTime(g.getCreateTime());
             list.add(vo);
         }
         return list;
+    }
+
+    /** 批量查询结果转 id → 实体 Map（空集合安全） */
+    private static <T> Map<Long, T> toMapById(List<T> list, Function<T, Long> idFn) {
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return list.stream().collect(Collectors.toMap(idFn, e -> e, (a, b) -> a));
     }
 
     // ==================== 订单联动 ====================
@@ -814,8 +859,25 @@ public class GroupBuyServiceImpl implements GroupBuyService {
         return vo;
     }
 
-    /** 团转 VO */
+    /** 团转 VO（单条版：内部按需查询成员与用户，供活动详情等低频场景使用） */
     private GroupBuyGroupVO toGroupVO(GroupBuyGroup g, GroupBuyActivity a, Long currentUserId) {
+        List<GroupBuyMember> members = memberMapper.selectList(
+                new LambdaQueryWrapper<GroupBuyMember>()
+                        .eq(GroupBuyMember::getGroupId, g.getId())
+                        .orderByAsc(GroupBuyMember::getId));
+        Set<Long> userIds = new HashSet<>();
+        if (g.getLeaderId() != null) {
+            userIds.add(g.getLeaderId());
+        }
+        members.forEach(m -> userIds.add(m.getUserId()));
+        Map<Long, User> userMap = userIds.isEmpty() ? Collections.emptyMap()
+                : toMapById(userMapper.selectBatchIds(userIds), User::getId);
+        return toGroupVO(g, a, currentUserId, members, userMap);
+    }
+
+    /** 团转 VO（批量版：成员列表与用户表由调用方一次性查出，消除列表场景 N+1） */
+    private GroupBuyGroupVO toGroupVO(GroupBuyGroup g, GroupBuyActivity a, Long currentUserId,
+                                      List<GroupBuyMember> members, Map<Long, User> userMap) {
         GroupBuyGroupVO vo = new GroupBuyGroupVO();
         vo.setId(g.getId());
         vo.setGroupNo(g.getGroupNo());
@@ -828,37 +890,30 @@ public class GroupBuyServiceImpl implements GroupBuyService {
         vo.setExpireTime(g.getExpireTime());
 
         // 参与人数 = 团内成员总数（含待支付成员：开团人下单即占位；成团判定仍以「已支付人数」为准，见 onOrderPaid）
-        long memberCount = memberMapper.selectCount(new LambdaQueryWrapper<GroupBuyMember>()
-                .eq(GroupBuyMember::getGroupId, g.getId()));
-        vo.setMemberCount((int) memberCount);
+        int memberCount = members == null ? 0 : members.size();
+        vo.setMemberCount(memberCount);
         vo.setProgress((int) Math.min(100, memberCount * 100.0 / a.getTargetCount()));
         vo.setRemainSeconds(Math.max(0, Duration.between(LocalDateTime.now(), g.getExpireTime()).getSeconds()));
 
         // 开团人匿名信息
-        User leader = userMapper.selectById(g.getLeaderId());
+        User leader = userMap == null ? null : userMap.get(g.getLeaderId());
         if (leader != null) {
             vo.setLeaderMask(maskName(leader));
             vo.setLeaderAvatar(leader.getAvatar());
         }
 
         // 成员头像（含待支付成员，与 memberCount「成员总数」口径一致；最多前 8 个）
-        List<GroupBuyMember> members = memberMapper.selectList(
-                new LambdaQueryWrapper<GroupBuyMember>()
-                        .eq(GroupBuyMember::getGroupId, g.getId())
-                        .orderByAsc(GroupBuyMember::getId)
-                        .last("limit 8"));
-        List<String> avatars = members.stream()
-                .map(m -> {
-                    User u = userMapper.selectById(m.getUserId());
-                    return u != null ? u.getAvatar() : null;
-                })
-                .collect(Collectors.toList());
+        List<String> avatars = new ArrayList<>();
+        if (members != null) {
+            for (int i = 0; i < Math.min(8, members.size()); i++) {
+                User u = userMap == null ? null : userMap.get(members.get(i).getUserId());
+                avatars.add(u != null ? u.getAvatar() : null);
+            }
+        }
         vo.setMemberAvatars(avatars);
 
-        vo.setIsJoined(currentUserId != null && memberMapper.selectCount(
-                new LambdaQueryWrapper<GroupBuyMember>()
-                        .eq(GroupBuyMember::getGroupId, g.getId())
-                        .eq(GroupBuyMember::getUserId, currentUserId)) > 0);
+        vo.setIsJoined(currentUserId != null && members != null
+                && members.stream().anyMatch(m -> m.getUserId().equals(currentUserId)));
         return vo;
     }
 

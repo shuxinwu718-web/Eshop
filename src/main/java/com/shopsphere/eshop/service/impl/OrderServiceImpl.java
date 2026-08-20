@@ -10,6 +10,7 @@ import com.shopsphere.eshop.mapper.*;
 import com.shopsphere.eshop.service.GroupBuyService;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
+import com.shopsphere.eshop.util.CouponCalculator;
 import com.shopsphere.eshop.entity.RefundReasonCategory;
 import com.shopsphere.eshop.vo.OrderVO;
 import com.shopsphere.eshop.vo.RefundApplicationVO;
@@ -146,30 +147,8 @@ public class OrderServiceImpl implements OrderService {
             if (userCoupon != null && userCoupon.getStatus() == 0) {
                 Coupon coupon = couponMapper.selectById(userCoupon.getCouponId());
                 if (coupon != null && coupon.getStatus() == 1) {
-                    // 检查门槛
-                    if (totalAmount.compareTo(coupon.getMinAmount()) >= 0) {
-                        if (coupon.getType() == 0) { // 满减
-                            payAmount = totalAmount.subtract(coupon.getValue());
-                            if (payAmount.compareTo(BigDecimal.ZERO) < 0) payAmount = BigDecimal.ZERO;
-                        } else if (coupon.getType() == 1) { // 折扣
-                            // value 表示折扣（如 8.5 即 8.5 折），折算比例 = value/10
-                            BigDecimal discountedPay = totalAmount
-                                    .multiply(coupon.getValue().divide(BigDecimal.valueOf(10)));
-                            // max_discount 表示「最高优惠金额」上限：优惠额超过则封顶
-                            if (coupon.getMaxDiscount() != null
-                                    && coupon.getMaxDiscount().compareTo(BigDecimal.ZERO) > 0) {
-                                BigDecimal saved = totalAmount.subtract(discountedPay);
-                                if (saved.compareTo(coupon.getMaxDiscount()) > 0) {
-                                    payAmount = totalAmount.subtract(coupon.getMaxDiscount());
-                                } else {
-                                    payAmount = discountedPay;
-                                }
-                            } else {
-                                payAmount = discountedPay;
-                            }
-                            if (payAmount.compareTo(BigDecimal.ZERO) < 0) payAmount = BigDecimal.ZERO;
-                        }
-                    } // else: 不满足门槛，忽略该券，仍使用原价
+                    // 统一走金额计算工具（含门槛、满减、折扣封顶），与前端结算预览口径一致
+                    payAmount = CouponCalculator.calc(totalAmount, coupon).payAmount();
                 }
             }
         }
@@ -568,9 +547,8 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderMapper.selectPage(page, wrapper);
 
         Page<OrderVO> voPage = new Page<>(orderPage.getCurrent(), orderPage.getSize(), orderPage.getTotal());
-        List<OrderVO> orderVOs = orderPage.getRecords().stream()
-                .map(this::convertToOrderVO)
-                .collect(Collectors.toList());
+        // 整页一次批量组装（convertToOrderVOs 内部按 IN 批量查询），避免逐条 convertToOrderVO 退化为 N+1
+        List<OrderVO> orderVOs = convertToOrderVOs(orderPage.getRecords());
         voPage.setRecords(orderVOs);
         return voPage;
     }

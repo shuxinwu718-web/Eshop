@@ -21,6 +21,11 @@ public final class OperationType {
     public static final String UPDATE_FESTIVAL_PLAN = "UPDATE_FESTIVAL_PLAN";
     public static final String DELETE_FESTIVAL_PLAN = "DELETE_FESTIVAL_PLAN";
 
+    // 平台营销活动
+    public static final String ADD_MARKETING_ACTIVITY = "ADD_MARKETING_ACTIVITY";
+    public static final String UPDATE_MARKETING_ACTIVITY = "UPDATE_MARKETING_ACTIVITY";
+    public static final String DELETE_MARKETING_ACTIVITY = "DELETE_MARKETING_ACTIVITY";
+
     // 退款
     public static final String AUDIT_REFUND = "AUDIT_REFUND";
 

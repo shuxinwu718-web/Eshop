@@ -16,4 +16,8 @@ public class UserCouponVO {
     private BigDecimal maxDiscount;
     private LocalDateTime expireTime;
     private Integer status;
+    /** 使用该券可优惠金额（后端 CouponCalculator 计算，用于前端结算预览） */
+    private BigDecimal discountAmount;
+    /** 使用该券后实付金额（后端 CouponCalculator 计算，用于前端结算预览） */
+    private BigDecimal payAmount;
 }

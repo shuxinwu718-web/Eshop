@@ -45,6 +45,8 @@ public class SecurityConfig {
                         // 拼团浏览放行（游客可看活动列表与团详情；开团/参团/我的拼团记录需登录）
                         .requestMatchers(HttpMethod.GET, "/api/group-buy/product/**",
                                 "/api/group-buy/groups/**").permitAll()
+                        // 营销活动浏览放行（游客可看活动与任务；领取奖励需登录）
+                        .requestMatchers(HttpMethod.GET, "/api/marketing-activity/**").permitAll()
                         // 文件上传 需要登录（防止匿名上传恶意文件）
                         .requestMatchers("/api/v1/files/**").authenticated()
                         // 访问记录 放行

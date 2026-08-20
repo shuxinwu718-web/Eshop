@@ -13,6 +13,7 @@ import com.shopsphere.eshop.mapper.UserCouponMapper;
 import com.shopsphere.eshop.mapper.UserSigninRecordMapper;
 import com.shopsphere.eshop.mapper.UserSigninRewardMapper;
 import com.shopsphere.eshop.service.UserCouponService;
+import com.shopsphere.eshop.util.CouponCalculator;
 import com.shopsphere.eshop.vo.AvailableCouponVO;
 import com.shopsphere.eshop.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -288,6 +289,10 @@ public class UserCouponServiceImpl implements UserCouponService {
             vo.setUserCouponId(uc.getId());
             vo.setExpireTime(coupon.getEndTime());
             vo.setStatus(uc.getStatus());
+            // 统一金额计算工具，供前端结算预览（与下单口径一致）
+            CouponCalculator.CalcResult r = CouponCalculator.calc(totalAmount, coupon);
+            vo.setDiscountAmount(r.discountAmount());
+            vo.setPayAmount(r.payAmount());
             result.add(vo);
         }
         return result;

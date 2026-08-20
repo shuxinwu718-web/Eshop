@@ -20,6 +20,7 @@ import com.shopsphere.eshop.mapper.UserMapper;
 import com.shopsphere.eshop.service.OrderService;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.service.UserService;
+import com.shopsphere.eshop.util.CouponCalculator;
 import com.shopsphere.eshop.vo.UserVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.AfterEach;
@@ -255,6 +256,55 @@ class A6BusinessIntegrationTest {
         long issued = userCouponMapper.selectCount(new LambdaQueryWrapper<UserCoupon>()
                 .eq(UserCoupon::getCouponId, c.getId()));
         assertEquals(success.get(), issued, "发放记录数与成功数不一致");
+    }
+
+    // ==================== C3 用券下单金额与 CouponCalculator 一致 ====================
+
+    @Test
+    void couponOrderPayAmountMatchesCalculator() {
+        User buyer = pickBuyer();
+        Product p = insertProduct(pickMerchantId(buyer.getId()), 100);
+
+        // 8.5 折券，最高优惠 50 元，无门槛
+        Coupon c = new Coupon();
+        c.setName("A6折扣券-" + marker);
+        c.setType(1);
+        c.setValue(new BigDecimal("8.5"));
+        c.setMinAmount(BigDecimal.ZERO);
+        c.setMaxDiscount(new BigDecimal("50"));
+        c.setStock(100);
+        c.setLimitPerUser(1000);
+        c.setObtainType(0);
+        c.setStartTime(LocalDateTime.now().minusDays(1));
+        c.setEndTime(LocalDateTime.now().plusDays(1));
+        c.setStatus(1);
+        c.setDeleted(0);
+        couponMapper.insert(c);
+        createdCouponIds.add(c.getId());
+
+        UserCoupon uc = new UserCoupon();
+        uc.setUserId(buyer.getId());
+        uc.setCouponId(c.getId());
+        uc.setStatus(0);
+        uc.setGetTime(LocalDateTime.now());
+        userCouponMapper.insert(uc);
+        createdUserCouponIds.add(uc.getId());
+
+        // 50 件 × 10 元 = 500 元；8.5 折优惠 75 元 → 封顶 50 → 实付 450
+        OrderCreateDTO dto = buildOrder(p, uc.getId());
+        dto.getItems().get(0).setQuantity(50);
+
+        Order order = orderService.createOrder(dto, buyer.getId());
+        createdOrderIds.add(order.getId());
+
+        assertEquals(0, new BigDecimal("500.00").compareTo(order.getTotalAmount()),
+                "订单总额不符: " + order.getTotalAmount());
+        assertEquals(0, new BigDecimal("450.00").compareTo(order.getPayAmount()),
+                "订单实付不符: " + order.getPayAmount());
+        // 与唯一计算来源 CouponCalculator 同源，保证前后端口径一致
+        assertEquals(0, order.getPayAmount().compareTo(
+                        CouponCalculator.calc(order.getTotalAmount(), c).payAmount()),
+                "订单实付与 CouponCalculator 口径不一致");
     }
 
     // ==================== S3 优惠券越权使用 ====================
