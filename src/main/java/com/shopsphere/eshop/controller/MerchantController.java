@@ -1,6 +1,7 @@
 package com.shopsphere.eshop.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shopsphere.eshop.annotation.CurrentUserId;
 import com.shopsphere.eshop.common.Result;
@@ -372,15 +373,42 @@ public class MerchantController {
             design.setMerchantId(merchantId);
             design.setBackgroundColor(dto.getBackgroundColor());
             design.setBannerUrl(dto.getBannerUrl());
+            design.setAnnouncement(dto.getAnnouncement());
+            design.setDraftLayout(dto.getDraftLayout());
             storeDesignMapper.insert(design);
         } else {
             design.setBackgroundColor(dto.getBackgroundColor());
             design.setBannerUrl(dto.getBannerUrl());
+            design.setAnnouncement(dto.getAnnouncement());
+            design.setDraftLayout(dto.getDraftLayout());
             storeDesignMapper.updateById(design);
         }
         // 店铺信息变更，清除小店信息缓存
         evictStoreInfoCache(merchantId);
         return Result.success("保存成功");
+    }
+
+    /**
+     * 发布装修草稿：楼层配置 draftLayout 生效为 layout（用户端可见），并清除草稿
+     */
+    @PutMapping("/store-design/publish")
+    public Result<?> publishStoreDesign(@CurrentUserId Long merchantId) {
+        StoreDesign design = storeDesignMapper.selectOne(
+                new LambdaQueryWrapper<StoreDesign>().eq(StoreDesign::getMerchantId, merchantId));
+        if (design == null) {
+            throw new BusinessException("店铺设计不存在，请先保存");
+        }
+        if (design.getDraftLayout() == null || design.getDraftLayout().isBlank()) {
+            throw new BusinessException("暂无待发布的草稿");
+        }
+        design.setLayout(design.getDraftLayout());
+        // 用 LambdaUpdateWrapper 强制置空草稿（updateById 默认忽略 null 字段）
+        storeDesignMapper.update(null, new LambdaUpdateWrapper<StoreDesign>()
+                .eq(StoreDesign::getMerchantId, merchantId)
+                .set(StoreDesign::getLayout, design.getDraftLayout())
+                .set(StoreDesign::getDraftLayout, null));
+        evictStoreInfoCache(merchantId);
+        return Result.success("发布成功");
     }
 
     @DeleteMapping("/store-design/avatar")

@@ -11,15 +11,20 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.ProductMapper;
 import com.shopsphere.eshop.mapper.StoreDesignMapper;
 import com.shopsphere.eshop.mapper.UserMapper;
+import com.shopsphere.eshop.vo.RecommendStoreVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/merchant")
@@ -75,6 +80,8 @@ public class StoreController {
         storeInfo.put("shopName", merchant.getNickname() != null ? merchant.getNickname() : merchant.getUsername());
         storeInfo.put("avatar", design != null && design.getBannerUrl() != null ? design.getBannerUrl() : merchant.getAvatar());
         storeInfo.put("backgroundColor", design != null ? design.getBackgroundColor() : "#667eea");
+        storeInfo.put("announcement", design != null ? design.getAnnouncement() : null);
+        storeInfo.put("layout", design != null ? design.getLayout() : null);
         storeInfo.put("productCount", productCount);
 
         // 3. 写缓存（店铺信息变动频率低，店铺设计更新时会主动清除）
@@ -85,5 +92,40 @@ public class StoreController {
             log.warn("小店信息缓存序列化失败, merchantId={}", merchantId);
         }
         return Result.success(storeInfo);
+    }
+
+    /**
+     * 首页推荐店铺：按在售商品销量取前 limit 家（默认 8）
+     */
+    @GetMapping("/recommend")
+    public Result<List<Map<String, Object>>> getRecommendStores(@RequestParam(defaultValue = "8") int limit) {
+        List<RecommendStoreVO> stores = productMapper.selectRecommendStores(Math.min(Math.max(limit, 1), 20));
+        if (stores.isEmpty()) {
+            return Result.success(Collections.emptyList());
+        }
+        List<Long> merchantIds = stores.stream().map(RecommendStoreVO::getMerchantId).collect(Collectors.toList());
+        Map<Long, User> userMap = userMapper.selectBatchIds(merchantIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        Map<Long, StoreDesign> designMap = storeDesignMapper.selectList(
+                        new LambdaQueryWrapper<StoreDesign>().in(StoreDesign::getMerchantId, merchantIds))
+                .stream().collect(Collectors.toMap(StoreDesign::getMerchantId, d -> d, (a, b) -> a));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (RecommendStoreVO s : stores) {
+            User u = userMap.get(s.getMerchantId());
+            StoreDesign d = designMap.get(s.getMerchantId());
+            if (u == null) {
+                continue;
+            }
+            Map<String, Object> item = new HashMap<>();
+            item.put("merchantId", s.getMerchantId());
+            item.put("shopName", u.getNickname() != null ? u.getNickname() : u.getUsername());
+            item.put("avatar", d != null && d.getBannerUrl() != null ? d.getBannerUrl() : u.getAvatar());
+            item.put("backgroundColor", d != null ? d.getBackgroundColor() : "#667eea");
+            item.put("productCount", s.getProductCount());
+            item.put("totalSales", s.getTotalSales());
+            result.add(item);
+        }
+        return Result.success(result);
     }
 }

@@ -13,6 +13,9 @@ public class StoreDesign {
     private Long merchantId;
     private String backgroundColor;
     private String bannerUrl;
+    private String announcement;
+    private String draftLayout;
+    private String layout;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.vo.HotProductVO;
 import com.shopsphere.eshop.vo.ProductSalesVO;
+import com.shopsphere.eshop.vo.RecommendStoreVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -56,4 +57,19 @@ public interface ProductMapper extends BaseMapper<Product> {
            "GROUP BY p.id " +
            "ORDER BY sales DESC")
     List<ProductSalesVO> selectProductSalesByMerchant(Long merchantId);
+
+    /**
+     * 首页推荐店铺：统计有在售商品商家的商品数与总销量，按销量降序取前 N 家
+     */
+    @Select("SELECT p.merchant_id AS merchantId, " +
+           "COUNT(*) AS productCount, " +
+           "COALESCE(SUM(sk.sales), 0) AS totalSales " +
+           "FROM product p " +
+           "LEFT JOIN (SELECT product_id, SUM(COALESCE(sales, 0)) AS sales " +
+           "           FROM product_sku GROUP BY product_id) sk ON p.id = sk.product_id " +
+           "WHERE p.deleted = 0 AND p.status = 1 AND p.merchant_id IS NOT NULL " +
+           "GROUP BY p.merchant_id " +
+           "ORDER BY totalSales DESC, productCount DESC " +
+           "LIMIT #{limit}")
+    List<RecommendStoreVO> selectRecommendStores(int limit);
 }

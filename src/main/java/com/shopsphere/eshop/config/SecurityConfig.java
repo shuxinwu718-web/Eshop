@@ -39,6 +39,7 @@ public class SecurityConfig {
                         // 游客浏览：分类树、小店公开信息、优惠券列表、节日券活动、商品评论列表
                         .requestMatchers(HttpMethod.GET, "/api/category/**",
                                 "/api/merchant/*/store",
+                                "/api/merchant/recommend",
                                 "/api/user/coupons/available",
                                 "/api/user/activities/festival-coupons",
                                 "/api/comments/product/**").permitAll()
