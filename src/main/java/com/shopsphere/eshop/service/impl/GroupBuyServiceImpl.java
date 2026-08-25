@@ -457,6 +457,9 @@ public class GroupBuyServiceImpl implements GroupBuyService {
             throw new BusinessException("活动时间设置错误");
         }
 
+        // ============ 新增：创建时库存预检 ============
+        validateStockOnCreate(dto);
+
         GroupBuyActivity activity = new GroupBuyActivity();
         BeanUtils.copyProperties(dto, activity);
         activity.setMerchantId(merchantId);
@@ -492,6 +495,10 @@ public class GroupBuyServiceImpl implements GroupBuyService {
                 throw new BusinessException("商品规格无效");
             }
         }
+
+        // ============ 新增：更新时库存预检 ============
+        validateStockOnUpdate(activity, dto);
+
         GroupBuyActivity update = new GroupBuyActivity();
         BeanUtils.copyProperties(dto, update);
         update.setMerchantId(merchantId);
@@ -499,6 +506,82 @@ public class GroupBuyServiceImpl implements GroupBuyService {
         // 活动/商品变更，失效新旧商品的活动列表缓存
         evictActivityListCache(activity.getProductId());
         evictActivityListCache(dto.getProductId());
+    }
+
+    /**
+     * 创建活动时库存预检（温和拦截）
+     * - 有规格：校验规格库存是否 >= 目标人数
+     * - 无规格：校验商品总库存是否 >= 目标人数
+     */
+    private void validateStockOnCreate(GroupBuyActivitySaveDTO dto) {
+        if (dto.getSkuId() != null) {
+            ProductSku sku = productSkuMapper.selectById(dto.getSkuId());
+            if (sku == null) {
+                throw new BusinessException("商品规格不存在");
+            }
+            if (sku.getStock() == null || sku.getStock() < dto.getTargetCount()) {
+                throw new BusinessException(
+                        String.format("规格库存不足（当前库存：%d，成团需：%d件），无法创建拼团活动",
+                                sku.getStock() == null ? 0 : sku.getStock(),
+                                dto.getTargetCount())
+                );
+            }
+        } else {
+            Product product = productMapper.selectById(dto.getProductId());
+            if (product == null) {
+                throw new BusinessException("商品不存在");
+            }
+            if (product.getStock() == null || product.getStock() < dto.getTargetCount()) {
+                throw new BusinessException(
+                        String.format("商品库存不足（当前库存：%d，成团需：%d件），无法创建拼团活动",
+                                product.getStock() == null ? 0 : product.getStock(),
+                                dto.getTargetCount())
+                );
+            }
+        }
+    }
+
+    /**
+     * 更新活动时库存预检
+     * - 草稿/暂停状态可编辑，校验当前库存是否 >= 目标人数
+     * - 若目标人数被调大，需要校验库存是否足够
+     */
+    private void validateStockOnUpdate(GroupBuyActivity existing, GroupBuyActivitySaveDTO dto) {
+        // 只有修改了 targetCount 或 更换了商品/规格 才重新校验
+        boolean targetChanged = !existing.getTargetCount().equals(dto.getTargetCount());
+        boolean productChanged = !existing.getProductId().equals(dto.getProductId());
+        boolean skuChanged = (existing.getSkuId() == null && dto.getSkuId() != null)
+                || (existing.getSkuId() != null && !existing.getSkuId().equals(dto.getSkuId()));
+
+        if (!targetChanged && !productChanged && !skuChanged) {
+            return; // 库存相关字段未变，无需校验
+        }
+
+        if (dto.getSkuId() != null) {
+            ProductSku sku = productSkuMapper.selectById(dto.getSkuId());
+            if (sku == null) {
+                throw new BusinessException("商品规格不存在");
+            }
+            if (sku.getStock() == null || sku.getStock() < dto.getTargetCount()) {
+                throw new BusinessException(
+                        String.format("规格库存不足（当前库存：%d，成团需：%d件），请调整成团人数或补充库存",
+                                sku.getStock() == null ? 0 : sku.getStock(),
+                                dto.getTargetCount())
+                );
+            }
+        } else {
+            Product product = productMapper.selectById(dto.getProductId());
+            if (product == null) {
+                throw new BusinessException("商品不存在");
+            }
+            if (product.getStock() == null || product.getStock() < dto.getTargetCount()) {
+                throw new BusinessException(
+                        String.format("商品库存不足（当前库存：%d，成团需：%d件），请调整成团人数或补充库存",
+                                product.getStock() == null ? 0 : product.getStock(),
+                                dto.getTargetCount())
+                );
+            }
+        }
     }
 
     @Override

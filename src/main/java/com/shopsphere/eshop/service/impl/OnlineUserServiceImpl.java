@@ -45,7 +45,7 @@ public class OnlineUserServiceImpl implements OnlineUserService {
         // 递增会话版本，所有旧的 token 自动失效
         incrementSessionVersion(userId);
         onlineUsers.remove(userId);
-        log.info("用户 {} 已被强制下线", userId);
+        // log.info("用户 {} 已被强制下线", userId);
     }
 
     @Override
@@ -91,7 +91,7 @@ public class OnlineUserServiceImpl implements OnlineUserService {
     @PostConstruct
     public void init() {
         scheduler.scheduleAtFixedRate(this::cleanupStaleSessions, 1, 1, TimeUnit.MINUTES);
-        log.info("在线用户清理任务已启动，超时时间: {}分钟", HEARTBEAT_TIMEOUT_MS / 1000 / 60);
+        // log.info("在线用户清理任务已启动，超时时间: {}分钟", HEARTBEAT_TIMEOUT_MS / 1000 / 60);
     }
 
     private static class UserSession {
