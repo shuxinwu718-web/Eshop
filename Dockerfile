@@ -9,6 +9,8 @@ RUN mvn package -DskipTests -B
 # ---- Runtime Stage ----
 FROM eclipse-temurin:17-jre
 WORKDIR /app
+# 时区与业务保持一致（订单/秒杀时间敏感）
+ENV TZ=Asia/Shanghai
 COPY --from=build /build/target/*.jar app.jar
 EXPOSE 8080
 VOLUME /app/uploads

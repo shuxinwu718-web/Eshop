@@ -9,9 +9,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: 123456
       MYSQL_DATABASE: eshops
+      TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql:/docker-entrypoint-initdb.d
+      # 仅挂载完整快照（39 张表，由本地开发库导出）
+      # 增量脚本（V*.sql）已合并进快照，无需单独执行
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
@@ -57,15 +60,29 @@ services:
       - "8080:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=docker
+      - TZ=Asia/Shanghai
     volumes:
       - uploads-data:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       elasticsearch:
         condition: service_started
+    networks:
+      - eshop-net
+
+  frontend:
+    # 前端项目与后端仓库同级：../Eshop
+    build:
+      context: ../Eshop
+    container_name: eshop-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - app
     networks:
       - eshop-net
 
