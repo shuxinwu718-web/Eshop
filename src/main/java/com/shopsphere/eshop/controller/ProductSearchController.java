@@ -142,7 +142,7 @@ public class ProductSearchController {
         // 3. 排序
         NativeQueryBuilder nativeQueryBuilder = new NativeQueryBuilder()
                 .withQuery(boolBuilder.build()._toQuery())
-                .withPageable(PageRequest.of(page, size, buildSort(sortBy)))
+                .withPageable(PageRequest.of(page, size, buildSort(sortBy, StringUtils.hasText(keyword))))
                 .withSourceFilter(new FetchSourceFilter(new String[]{
                         "id", "name", "categoryId", "categoryName", "price",
                         "stock", "coverImage", "description", "status", "sales", "createTime"
@@ -250,14 +250,17 @@ public class ProductSearchController {
         return Result.success("全量同步触发成功");
     }
 
-    private Sort buildSort(String sortBy) {
+    private Sort buildSort(String sortBy, boolean hasKeyword) {
 
         return switch (sortBy) {
             case "price_asc" -> Sort.by(Sort.Direction.ASC, "price");
             case "price_desc" -> Sort.by(Sort.Direction.DESC, "price");
             case "sales" -> Sort.by(Sort.Direction.DESC, "sales");
             case "newest" -> Sort.by(Sort.Direction.DESC, "createTime");
-            default -> Sort.unsorted(); // relevant: 按 ES _score 排序
+            // relevant：有关键词按相关性 _score 排序；无关键词按 id 升序（靠前商品优先）
+            default -> hasKeyword
+                    ? Sort.unsorted()
+                    : Sort.by(Sort.Direction.ASC, "id");
         };
     }
 

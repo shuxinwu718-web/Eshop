@@ -22,6 +22,7 @@
 | 框架 | Spring Boot 3.2.2、Spring Security |
 | 持久层 | MyBatis-Plus 3.5.6、MySQL 8.0 |
 | 缓存 | Redis（Spring Data Redis，拼团/秒杀/热点数据） |
+| 消息队列 | RabbitMQ（延迟消息插件，订单超时取消/支付异步处理/邮件/访问日志） |
 | 搜索引擎 | Elasticsearch 8.11（可选，开关控制，无 ES 自动降级 MySQL 搜索） |
 | 认证 | JWT（jjwt 0.11.5，Authorization Bearer） |
 | 接口文档 | SpringDoc OpenAPI（Swagger UI） |
@@ -36,7 +37,7 @@ e-shop
 │   ├── annotation/               # 自定义注解（@CurrentUserId、@Log）
 │   ├── aspect/                   # 操作日志切面
 │   ├── common/                   # 统一返回结果 Result
-│   ├── config/                   # Security / Web / Redis / MyBatis-Plus / ES / JWT 过滤器等配置
+│   ├── config/                   # Security / Web / Redis / MyBatis-Plus / ES / RabbitMQ / JWT 过滤器等配置
 │   ├── constant/                 # 业务常量与枚举
 │   ├── controller/               # REST 控制器（用户/商品/订单/拼团/秒杀/商家/管理端…）
 │   ├── dto/                      # 请求参数对象
@@ -44,6 +45,7 @@ e-shop
 │   ├── exception/                # 全局异常处理与错误码
 │   ├── interceptor/              # 访问记录拦截器
 │   ├── mapper/                   # MyBatis-Plus Mapper 接口
+│   ├── mq/                       # RabbitMQ 消息模型与消费者（订单/邮件/访问日志）
 │   ├── repository/               # ES 搜索仓储
 │   ├── service/                  # 业务层（接口 + impl 实现）
 │   ├── utils/                    # JWT、IP、拼音等工具
@@ -61,6 +63,16 @@ e-shop
 - **商家端**：店铺入驻申请、商品管理（SKU/规格/尺码表）、订单处理、退款审核、拼团活动管理、经营统计、消息通知
 - **管理端**：用户/商品/订单/优惠券管理、秒杀场次管理、商家审核、运营统计、系统日志、访问统计
 
+### 消息队列异步化（RabbitMQ）
+
+- **订单超时自动取消**：下单后发送延迟消息（依赖 `rabbitmq_delayed_message_exchange` 插件），超时未支付自动关单并回滚
+- **支付成功异步处理**：支付/退款成功发布消息，异步扣减库存、追加销量（`StockConsumer` / `OrderPaidConsumer`）
+- **邮件异步发送**：邮箱验证码、找回密码等邮件投递不阻塞主线程（`EmailConsumer`）
+- **订单通知**：下单/支付后异步生成站内通知（`OrderNotifyConsumer`）
+- **访问日志异步落库**：`TraceFilter` 对每个请求发送访问日志消息（`VisitLogConsumer`），落库零阻塞
+
+> 注：各消费者均为手动 ACK 模式，处理失败可重新入队，保证不丢消息。
+
 ## 快速开始
 
 ### 环境要求
@@ -69,7 +81,10 @@ e-shop
 - Maven 3.9+
 - MySQL 8.0
 - Redis（可选，部分功能依赖）
+- RabbitMQ 3.12+（默认 `localhost:5672`，guest/guest；**必须启用 `rabbitmq_delayed_message_exchange` 延迟消息插件**，否则订单超时取消功能不可用）
 - Elasticsearch 8.11（可选，无 ES 环境可关闭）
+
+> 注：当前 `docker-compose.yml` 尚未内置 RabbitMQ，容器化部署时请自行添加 RabbitMQ 服务（并加载延迟消息插件）；本地开发可直接安装并启动 RabbitMQ。
 
 ### 方式一：Docker Compose（推荐）
 

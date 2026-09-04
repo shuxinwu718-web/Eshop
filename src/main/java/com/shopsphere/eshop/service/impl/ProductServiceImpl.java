@@ -281,8 +281,10 @@ public class ProductServiceImpl implements ProductService {
             wrapper.orderByDesc(Product::getPrice);
         } else if ("sales".equals(dto.getSortBy())) {
             wrapper.orderByDesc(Product::getSales);
+        } else if ("newest".equals(dto.getSortBy())) {
+            wrapper.orderByDesc(Product::getCreateTime);   // 最新
         } else {
-            wrapper.orderByDesc(Product::getCreateTime);   // 现有默认：最新
+            wrapper.orderByAsc(Product::getId);   // 默认（综合）：id 升序，靠前商品优先
         }
         return productMapper.selectPage(page, wrapper);
     }
@@ -516,7 +518,7 @@ public class ProductServiceImpl implements ProductService {
             if (hotProducts != null && !hotProducts.isEmpty()) {
                 redisTemplate.opsForValue().set(
                         CACHE_HOT + 20, hotProducts, HOT_TTL, TimeUnit.MINUTES);
-                log.debug("定时刷新热门商品缓存完成，共 {} 条", hotProducts.size());
+                //  log.debug("定时刷新热门商品缓存完成，共 {} 条", hotProducts.size());
             }
 
             // 2. 修正有SKU的商品库存和销量（将product表与SKU表对齐）
@@ -525,10 +527,21 @@ public class ProductServiceImpl implements ProductService {
                             .eq(Product::getDeleted, 0)
                             .eq(Product::getStatus, 1));
             int syncCount = 0;
+            // 批量查询所有在线商品的 SKU（一次 SQL 代替 N+1 逐商品查询），按 productId 分组
+            Map<Long, List<ProductSku>> skuMap = new HashMap<>();
+            if (!onlineProducts.isEmpty()) {
+                List<Long> onlineProductIds = new ArrayList<>(onlineProducts.size());
+                for (Product p : onlineProducts) {
+                    onlineProductIds.add(p.getId());
+                }
+                for (ProductSku sku : productSkuMapper.selectList(
+                        new LambdaQueryWrapper<ProductSku>().in(ProductSku::getProductId, onlineProductIds))) {
+                    skuMap.computeIfAbsent(sku.getProductId(), k -> new ArrayList<>()).add(sku);
+                }
+            }
             for (Product p : onlineProducts) {
-                List<ProductSku> skuList = productSkuMapper.selectList(
-                        new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, p.getId()));
-                if (skuList.isEmpty()) continue;
+                List<ProductSku> skuList = skuMap.get(p.getId());
+                if (skuList == null || skuList.isEmpty()) continue;
                 int totalStock = skuList.stream()
                         .filter(s -> s.getStock() != null)
                         .mapToInt(ProductSku::getStock)

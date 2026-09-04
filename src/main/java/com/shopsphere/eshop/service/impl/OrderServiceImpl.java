@@ -3,10 +3,15 @@ package com.shopsphere.eshop.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.eshop.config.RabbitMQConfig;
 import com.shopsphere.eshop.dto.*;
 import com.shopsphere.eshop.entity.*;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.*;
+import com.shopsphere.eshop.mq.OrderCreatedMessage;
+import com.shopsphere.eshop.mq.OrderPaidMessage;
+import com.shopsphere.eshop.mq.OrderTimeoutMessage;
+import com.shopsphere.eshop.mq.PaySuccessMessage;
 import com.shopsphere.eshop.service.GroupBuyService;
 import com.shopsphere.eshop.service.NoticeService;
 import com.shopsphere.eshop.service.OrderService;
@@ -17,6 +22,7 @@ import com.shopsphere.eshop.vo.RefundApplicationVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -28,7 +34,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -53,11 +62,14 @@ public class OrderServiceImpl implements OrderService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final StringRedisTemplate stringRedisTemplate;
     private final GroupBuyService groupBuyService;
+    private final RabbitTemplate rabbitTemplate;
 
     @Scheduled(cron = "0 */5 * * * ?")
     public void scheduledCancelOrders() {
         autoCancelExpiredOrders();  // 调用你已有的自动取消方法
     }
+
+
 
     @Override
     @Transactional
@@ -229,6 +241,29 @@ public class OrderServiceImpl implements OrderService {
         }
 
 
+        // ===== 🆕 发送延迟消息：30分钟后自动取消订单 =====
+        try {
+            // 延迟消息需要手动构造 Message，设置延迟时间
+            OrderTimeoutMessage timeoutMsg = new OrderTimeoutMessage(order.getId());
+
+            // 使用 Jackson 转换器将对象转为 JSON
+            byte[] body = objectMapper.writeValueAsBytes(timeoutMsg);
+
+            MessageProperties properties = new MessageProperties();
+            properties.setDelay(30 * 60 * 1000);  // 30 分钟，单位毫秒
+            properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+
+            Message message = new Message(body, properties);
+
+            rabbitTemplate.send(RabbitMQConfig.DELAYED_EXCHANGE, RabbitMQConfig.ORDER_TIMEOUT_ROUTING_KEY, message);
+
+            log.info("订单超时取消延迟消息已投递，订单号: {}, 将在30分钟后执行", orderNo);
+        } catch (Exception e) {
+            // 延迟消息发送失败不影响订单创建，记录日志
+            log.error("订单超时取消延迟消息发送失败，订单号: {}", orderNo, e);
+        }
+
+
         // 6.更新折扣劵使用情况
         if (dto.getUserCouponId() != null && payAmount.compareTo(totalAmount) < 0) {
             UserCoupon userCoupon = userCouponMapper.selectById(dto.getUserCouponId());
@@ -261,15 +296,23 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 8. 发送新订单通知给商家
-        for (Long sellerId : itemsBySeller.keySet()) {
-            noticeService.createAndPublish(
-                    "新订单通知",
-                    "您有新的订单，订单号：" + orderNo,
-                    3,
-                    sellerId,
-                    "new_order",
-                    order.getId()
+        // ===== 新增：发送 MQ 消息，异步处理通知 =====
+        try {
+            OrderCreatedMessage notifyMsg = new OrderCreatedMessage(
+                    order.getId(),
+                    orderNo,
+                    userId,
+                    new ArrayList<>(itemsBySeller.keySet())  // 所有商家ID
             );
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfig.ORDER_NOTIFY_EXCHANGE,
+                    RabbitMQConfig.ORDER_NOTIFY_ROUTING_KEY,
+                    notifyMsg
+            );
+            log.info("订单通知消息已投递，订单号: {}", orderNo);
+        } catch (Exception e) {
+            // 通知消息发送失败不影响订单创建，记录日志
+            log.error("订单通知消息发送失败，订单号: {}", orderNo, e);
         }
 
         log.info("订单创建成功 orderNo={}, userId={}, amount={}, payAmount={}", orderNo, userId, totalAmount, payAmount);
@@ -313,96 +356,116 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 内部取消订单逻辑（不校验用户，用于定时任务或退款）
+     * 内部取消订单逻辑（供定时任务、延迟消息、退款等场景复用）
+     * 不做用户权限校验，只做业务逻辑
+     *
+     * @param order 待取消的订单实体
      */
-    private void cancelOrderInternal(Order order) {
-        // 1. 更新订单状态为已取消
-        order.setOrderStatus(4);
-        order.setCancelTime(LocalDateTime.now());
-        orderMapper.updateById(order);
+    @Transactional
+    public void cancelOrderInternal(Order order) {
+        try {
+            Long orderId = order.getId();
+            String orderNo = order.getOrderNo();
+            log.info("开始取消订单: orderId={}, orderNo={}", orderId, orderNo);
 
-        // 2. 恢复商品库存（支持SKU）——拼团订单下单时不扣库存（成团时才扣），取消时无需回退
-        Set<Long> merchantIds = new HashSet<>();
-        if (order.getType() != Order.ORDER_TYPE_GROUP_BUY) {
-            List<OrderItem> items = orderItemMapper.selectList(
-                    new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId())
-            );
+            // 1. 更新订单状态为已取消
+            order.setOrderStatus(4);
+            order.setCancelTime(LocalDateTime.now());
+            orderMapper.updateById(order);
+
+            // 2. 恢复库存（支持 SKU）
+            // 拼团订单下单时不扣库存（成团时才扣），取消时无需回退
+            Set<Long> merchantIds = new HashSet<>();
             Set<Long> affectedProductIds = new HashSet<>();
-            for (OrderItem item : items) {
-                if (item.getSkuId() != null) {
-                    ProductSku sku = productSkuMapper.selectById(item.getSkuId());
-                    if (sku != null) {
-                        sku.setStock(sku.getStock() + item.getQuantity());
-                        productSkuMapper.updateById(sku);
+
+            if (order.getType() != Order.ORDER_TYPE_GROUP_BUY) {
+                List<OrderItem> items = orderItemMapper.selectList(
+                        new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId)
+                );
+
+                for (OrderItem item : items) {
+                    if (item.getSkuId() != null) {
+                        // 有 SKU：恢复 SKU 库存
+                        ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+                        if (sku != null) {
+                            sku.setStock(sku.getStock() + item.getQuantity());
+                            productSkuMapper.updateById(sku);
+                        }
+                    } else {
+                        // 无 SKU：直接恢复商品库存
+                        Product product = productMapper.selectById(item.getProductId());
+                        if (product != null) {
+                            product.setStock(product.getStock() + item.getQuantity());
+                            productMapper.updateById(product);
+                            merchantIds.add(product.getMerchantId());
+                        }
                     }
-                } else {
-                    Product product = productMapper.selectById(item.getProductId());
-                    if (product != null) {
-                        product.setStock(product.getStock() + item.getQuantity());
-                        productMapper.updateById(product);
-                        merchantIds.add(product.getMerchantId());
-                    }
+                    affectedProductIds.add(item.getProductId());
                 }
-                affectedProductIds.add(item.getProductId());
-            }
-            // 2b. 对有SKU的商品，重新从SKU汇总同步product.stock
-            for (Long pid : affectedProductIds) {
-                List<ProductSku> skuList = productSkuMapper.selectList(
-                        new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
-                if (!skuList.isEmpty()) {
-                    int totalStock = skuList.stream()
-                            .filter(s -> s.getStock() != null)
-                            .mapToInt(ProductSku::getStock)
-                            .sum();
-                    Product p = productMapper.selectById(pid);
-                    if (p != null) {
-                        p.setStock(totalStock);
-                        productMapper.updateById(p);
+
+                // 2b. 对有 SKU 的商品，重新从 SKU 汇总同步 product.stock
+                for (Long pid : affectedProductIds) {
+                    List<ProductSku> skuList = productSkuMapper.selectList(
+                            new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, pid));
+                    if (!skuList.isEmpty()) {
+                        int totalStock = skuList.stream()
+                                .filter(s -> s.getStock() != null)
+                                .mapToInt(ProductSku::getStock)
+                                .sum();
+                        Product p = productMapper.selectById(pid);
+                        if (p != null) {
+                            p.setStock(totalStock);
+                            productMapper.updateById(p);
+                        }
                     }
+                    // 清除 Redis 缓存
+                    redisTemplate.delete("product:detail:" + pid);
                 }
-                // 清除Redis缓存
-                redisTemplate.delete("product:detail:" + pid);
             }
-        }
 
-        // 3. 归还优惠券
-        releaseCouponIfAny(order.getOrderNo());
+            // 3. 归还优惠券
+            releaseCouponIfAny(order.getOrderNo());
 
-        // 3b. 秒杀商品订单：回滚秒杀场次库存与 Redis 数据（释放库存供再次抢购）
-        if (order.getSeckillSessionId() != null) {
-            Long sid = order.getSeckillSessionId();
-            seckillSessionMapper.addStock(sid, 1);
-            stringRedisTemplate.opsForValue().increment(SeckillServiceImpl.STOCK_KEY + sid);
-            stringRedisTemplate.opsForSet().remove(SeckillServiceImpl.USERS_KEY + sid, String.valueOf(order.getUserId()));
-            log.info("秒杀订单取消，已回滚秒杀库存 sessionId={}, orderId={}", sid, order.getId());
-        }
+            // 4. 秒杀商品订单：回滚秒杀场次库存与 Redis 数据
+            if (order.getSeckillSessionId() != null) {
+                Long sid = order.getSeckillSessionId();
+                seckillSessionMapper.addStock(sid, 1);
+                stringRedisTemplate.opsForValue().increment(SeckillServiceImpl.STOCK_KEY + sid);
+                stringRedisTemplate.opsForSet().remove(SeckillServiceImpl.USERS_KEY + sid, String.valueOf(order.getUserId()));
+                log.info("秒杀订单取消，已回滚秒杀库存 sessionId={}, orderId={}", sid, order.getId());
+            }
 
-        // 3c. 拼团订单：删除未支付成员释放团位，团内无人则团失效
-        //     （拼团订单下单不扣库存，库存由成团时扣减，此处无需回滚）
-        groupBuyService.onOrderCancelled(order.getId());
+            // 5. 拼团订单：删除未支付成员释放团位
+            groupBuyService.onOrderCancelled(order.getId());
 
-        // 4. 发送系统通知（商家）
-        for (Long merchantId : merchantIds) {
+            // 6. 发送通知给商家（如果有）
+            for (Long merchantId : merchantIds) {
+                noticeService.createAndPublish(
+                        "订单取消通知",
+                        "订单 " + order.getOrderNo() + " 已取消",
+                        3,
+                        merchantId,
+                        "order_cancelled",
+                        orderId
+                );
+            }
+
+            // 7. 发送通知给买家
             noticeService.createAndPublish(
-                    "订单超时取消通知",
-                    "订单 " + order.getOrderNo() + " 因超时未支付已被系统自动取消",
+                    "订单已取消",
+                    "您的订单 " + order.getOrderNo() + " 已取消",
                     3,
-                    merchantId,
+                    order.getUserId(),
                     "order_cancelled",
-                    order.getId()
+                    orderId
             );
-        }
-        // 5. 发送通知给买家
-        noticeService.createAndPublish(
-                "订单已取消",
-                "您的订单 " + order.getOrderNo() + " 因超时未支付已被系统自动取消",
-                3,
-                order.getUserId(),
-                "order_cancelled",
-                order.getId()
-        );
 
-        log.info("自动取消订单成功, orderId={}, orderNo={}", order.getId(), order.getOrderNo());
+            log.info("订单取消成功: orderId={}, orderNo={}", orderId, orderNo);
+
+        } catch (Exception e) {
+            log.error("取消订单失败: orderId={}", order.getId(), e);
+            throw new BusinessException("取消订单失败：" + e.getMessage());
+        }
     }
 
 
@@ -467,26 +530,45 @@ public class OrderServiceImpl implements OrderService {
         if (hotKeys != null && !hotKeys.isEmpty()) {
             redisTemplate.delete(hotKeys);
         }
-        for (Long merchantId : paidMerchantIds) {
-            noticeService.createAndPublish(
-                    "订单付款通知",
-                    "订单 " + order.getOrderNo() + " 已付款，请尽快发货",
-                    3,
-                    merchantId,
-                    "order_paid",
-                    orderId
+
+        // ===== ✅ 新增：发送 MQ 消息，异步扣库存 =====
+        // 遍历订单项，逐个发送扣库存消息（或者合并成一条，这里简单起见发多条）
+        for (OrderItem item : items) {
+            PaySuccessMessage msg = new PaySuccessMessage(
+                    orderId,
+                    userId,
+                    item.getProductId(),
+                    item.getQuantity(),
+                    item.getSkuId(),
+                    order.getPayAmount()
             );
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfig.ORDER_EXCHANGE,
+                    RabbitMQConfig.ORDER_PAY_ROUTING_KEY,
+                    msg
+            );
+            log.info("扣库存消息已投递，订单ID: {}, 商品ID: {}, 数量: {}",
+                    orderId, item.getProductId(), item.getQuantity());
         }
 
-        // 创建系统通知给用户
-        noticeService.createAndPublish(
-                "订单支付成功",
-                "您的订单 " + order.getOrderNo() + " 已支付成功，请等待发货",
-                3,
-                userId,
-                "order_paid",
-                orderId
-        );
+        // ===== 新增：发送 MQ 消息，异步处理支付通知 =====
+        try {
+            OrderPaidMessage paidMsg = new OrderPaidMessage(
+                    orderId,
+                    order.getOrderNo(),
+                    userId,
+                    new ArrayList<>(paidMerchantIds)
+            );
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfig.ORDER_PAID_EXCHANGE,
+                    RabbitMQConfig.ORDER_PAID_ROUTING_KEY,
+                    paidMsg
+            );
+            log.info("支付通知消息已投递，订单号: {}", order.getOrderNo());
+        } catch (Exception e) {
+            // 通知消息发送失败不影响支付主流程，记录日志
+            log.error("支付通知消息发送失败，订单号: {}", order.getOrderNo(), e);
+        }
 
         // 拼团订单：标记成员已支付并做成团判定
         if (order.getType() != null && order.getType() == Order.ORDER_TYPE_GROUP_BUY) {

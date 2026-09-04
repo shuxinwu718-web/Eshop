@@ -21,8 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -140,9 +142,18 @@ public class SeckillServiceImpl implements SeckillService {
             session.setLimitPerUser(1);
         }
         seckillSessionMapper.insert(session);
-
         // 预热 Redis 库存
         stringRedisTemplate.opsForValue().set(STOCK_KEY + session.getId(), String.valueOf(session.getSeckillStock()));
+
+        // ========== 新增：为 USERS_KEY 预设过期时间 ==========
+        String usersKey = USERS_KEY + session.getId();
+        // 计算场次结束时间到现在的秒数
+        long ttlSeconds = Duration.between(LocalDateTime.now(), dto.getEndTime()).toSeconds();
+        // 先删再设（防止之前有残留数据）
+        stringRedisTemplate.delete(usersKey);
+        stringRedisTemplate.expire(usersKey, ttlSeconds, TimeUnit.SECONDS);
+        // ========== 新增结束 ==========
+
         // 新增场次影响活跃列表，清理场次列表缓存
         evictSessionsCache();
         log.info("秒杀场次 [{}] 创建成功，类型 [{}]，库存 {}", session.getSessionName(),
@@ -219,13 +230,11 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("开始时间不能晚于结束时间");
         }
 
-        // 未显式传类型时沿用场次现有类型，避免把商品场次误改成券场次
         if (dto.getSeckillType() == null) {
             dto.setSeckillType(session.getSeckillType() == null ? 0 : session.getSeckillType());
         }
         validateByType(dto);
 
-        // 如果减少库存，校验不能低于已领取数量
         if (dto.getSeckillStock() != null) {
             Long claimed = stringRedisTemplate.opsForSet().size(USERS_KEY + dto.getId());
             if (claimed != null && dto.getSeckillStock() < claimed) {
@@ -238,7 +247,20 @@ public class SeckillServiceImpl implements SeckillService {
 
         // 更新 Redis 库存
         stringRedisTemplate.opsForValue().set(STOCK_KEY + session.getId(), String.valueOf(session.getSeckillStock()));
-        // 场次信息变更影响列表展示，清理场次列表缓存
+
+        // 如果结束时间变了，更新 USERS_KEY 的 TTL
+        if (dto.getEndTime() != null) {
+            String usersKey = USERS_KEY + session.getId();
+            long ttlSeconds = Duration.between(LocalDateTime.now(), dto.getEndTime()).toSeconds();
+
+            // ⭐ 修复：只有 Key 存在时才设置过期时间，避免 sadd 空集合报错
+            Boolean exists = stringRedisTemplate.hasKey(usersKey);
+            if (Boolean.TRUE.equals(exists)) {
+                stringRedisTemplate.expire(usersKey, ttlSeconds, TimeUnit.SECONDS);
+            }
+            // Key 不存在时，不创建空 Set，直接跳过（不影响业务）
+        }
+
         evictSessionsCache();
         log.info("秒杀场次 [{}] 已更新，库存 {}", session.getSessionName(), session.getSeckillStock());
     }

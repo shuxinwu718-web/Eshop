@@ -4,18 +4,19 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.UserMapper;
+import com.shopsphere.eshop.mq.EmailMessage;
 import com.shopsphere.eshop.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import static com.shopsphere.eshop.mq.MqConstants.*;
+
 
 @Service
 @RequiredArgsConstructor
@@ -24,7 +25,9 @@ public class EmailServiceImpl implements EmailService {
 
     private final UserMapper userMapper;
     private final RedisTemplate<String, String> redisTemplate;
-    private final JavaMailSender javaMailSender;
+  // private final JavaMailSender javaMailSender;
+    private final RabbitTemplate rabbitTemplate;  // ← 新增，替代 JavaMailSender
+
 
     @Value("${spring.mail.username}")
     private String fromEmail;
@@ -45,19 +48,17 @@ public class EmailServiceImpl implements EmailService {
         String redisKey = "email:code:" + email;
         redisTemplate.opsForValue().set(redisKey, code, 5, TimeUnit.MINUTES);
 
-        // 4. 发送邮件
-        try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("邮箱验证码");
-            message.setText("您的验证码是：" + code + "，5分钟内有效。");
-            javaMailSender.send(message);
-            log.info("验证码已发送至 {}", email);
-        } catch (Exception e) {
-            log.error("邮件发送失败", e);
-            throw new BusinessException("邮件发送失败，请稍后重试");
-        }
+        // 4. ✅ 改造点：发送消息到 MQ，不再同步发邮件
+        EmailMessage msg = new EmailMessage(
+                email,
+                code,
+                "bind",
+                "邮箱验证码",
+                "您的验证码是：" + code + "，5分钟内有效。"
+        );
+        rabbitTemplate.convertAndSend(EMAIL_EXCHANGE, EMAIL_ROUTING_KEY, msg);
+        log.info("邮件任务已投递到MQ，目标邮箱: {}", email);
+        // 方法立即返回，用户不用等邮件发送完成
     }
 
     @Override
@@ -98,7 +99,7 @@ public class EmailServiceImpl implements EmailService {
         if (userMapper.selectCount(wrapper) == 0) {
             throw new BusinessException("该邮箱未注册");
         }
-        sendCodeCommon(email, "reset");
+        sendCodeCommon(email, "reset","重置密码验证码");
     }
 
 
@@ -110,31 +111,24 @@ public class EmailServiceImpl implements EmailService {
         if (userMapper.selectCount(wrapper) == 0) {
             throw new BusinessException("该邮箱未注册");
         }
-        sendCodeCommon(email, "login");
+        sendCodeCommon(email, "login","登录验证码");
     }
 
-    private void sendCodeCommon(String email, String purpose) {
+    // 抽取公共方法，统一走 MQ
+    private void sendCodeCommon(String email, String purpose, String subject) {
         String code = String.format("%06d", new Random().nextInt(999999));
-        String redisKey = "email:code:" + email + ":" + purpose;  // 区分不同用途
+        String redisKey = "email:code:" + email + ":" + purpose;
         redisTemplate.opsForValue().set(redisKey, code, 5, TimeUnit.MINUTES);
-        try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            String subject;
-            switch (purpose) {
-                case "login": subject = "登录验证码"; break;
-                case "reset": subject = "重置密码验证码"; break;
-                default: subject = "邮箱验证码";
-            }
-            message.setSubject(subject);
-            message.setText("您的验证码是：" + code + "，5分钟内有效。");
-            javaMailSender.send(message);
-            log.info("{}验证码已发送至 {}", purpose, email);
-        } catch (Exception e) {
-            log.error("邮件发送失败", e);
-            throw new BusinessException("邮件发送失败，请稍后重试");
-        }
+
+        EmailMessage msg = new EmailMessage(
+                email,
+                code,
+                purpose,
+                subject,
+                "您的验证码是：" + code + "，5分钟内有效。"
+        );
+        rabbitTemplate.convertAndSend(EMAIL_EXCHANGE, EMAIL_ROUTING_KEY, msg);
+        log.info("{}邮件任务已投递到MQ，目标邮箱: {}", purpose, email);
     }
 
 }

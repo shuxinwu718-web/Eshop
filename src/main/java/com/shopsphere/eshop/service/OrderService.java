@@ -60,4 +60,6 @@ public interface OrderService {
      * 获取退款满意度评价（管理员/商户使用，无需userId校验）
      */
     RefundSatisfaction getRefundSatisfaction(Long refundId);
+
+    void cancelOrderInternal(Order order);
 }

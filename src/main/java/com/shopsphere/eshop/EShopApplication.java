@@ -14,6 +14,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 public class EShopApplication {
 
     public static void main(String[] args) {
+        // 解决 RabbitMQ 反序列化白名单问题
+        System.setProperty("spring.amqp.deserialization.trust.all", "true");
         SpringApplication.run(EShopApplication.class, args);
     }
 

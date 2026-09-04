@@ -44,7 +44,7 @@ public class SeckillController {
     /** 活跃场次列表缓存 key（与 SeckillServiceImpl 保持一致） */
     public static final String SESSIONS_CACHE_KEY = "seckill:sessions";
     /** 场次列表缓存 TTL：短缓存，保证管理端增删改后快速可见 */
-    private static final long SESSIONS_CACHE_TTL_SECONDS = 30;
+    private static final long SESSIONS_CACHE_TTL_SECONDS = 300;
 
     private final SeckillService seckillService;
     private final CouponMapper couponMapper;

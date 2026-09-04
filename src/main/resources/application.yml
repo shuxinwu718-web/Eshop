@@ -15,12 +15,12 @@ spring:
   data:
     elasticsearch:
       repositories:
-        enabled: ${elasticsearch.enabled:false}   # ES repository 由 elasticsearch.enabled 开关控制（关键：避免启动时连 ES 建索引）
-  mail:                                   # 👈 新增邮件配置
+        enabled: ${elasticsearch.enabled:true}
+  mail:
     host: smtp.qq.com
     port: 587
-    username: 2368151277@qq.com       # 替换为你的QQ邮箱
-    password: ${MAIL_PASSWORD:yfxkuhmtayfpdhjh}    # 授权码，生产环境请通过环境变量 MAIL_PASSWORD 注入
+    username: 2368151277@qq.com
+    password: ${MAIL_PASSWORD:yfxkuhmtayfpdhjh}
     default-encoding: UTF-8
     properties:
       mail:
@@ -30,19 +30,17 @@ spring:
             enable: true
           socketFactory:
             class: javax.net.ssl.SSLSocketFactory
-#  data:
-#    redis:
-#      host: localhost
-#      port: 6379
-#      password:
-#      timeout: 5000ms
-#      lettuce:
-#        pool:
-#          max-active: 8
-#          max-idle: 8
-#          min-idle: 0
-
-
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    dynamic: true
+  # 👇 amqp 和 rabbitmq 是平级的，都在 spring 下
+  amqp:
+    deserialization:
+      trust:
+        all: true
 # JWT 配置
 jwt:
   # 生产环境请通过环境变量 JWT_SECRET 注入更安全的密钥
@@ -50,9 +48,11 @@ jwt:
   expiration: 14400000
 
 # ========== Elasticsearch 开关 ==========
-# 无 ES 环境默认 false（走 MySQL 降级搜索）；有 ES 环境改为 true 并配置 spring.elasticsearch.uris
+# 直接改下面这行 true/false 即可切换：
+#   true  = 启用 ES 搜索（需 ES 可达，地址见上方 spring.elasticsearch.uris）
+#   false = 禁用 ES，走 MySQL 降级搜索（适合无 ES 环境）
 elasticsearch:
-  enabled: ${ES_ENABLED:false}
+  enabled: false
 
 management:
   health:
