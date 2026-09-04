@@ -142,4 +142,4 @@ mvn test
 
 ## License
 
-MIT
+肇庆学院
