@@ -14,6 +14,12 @@ public class VisitLog {
     private Long userId;
     private String ip;
     private String userAgent;
+    /** HTTP 请求方法（GET/POST/...） */
+    private String method;
     private String requestUri;
+    /** HTTP 状态码（监控大盘：错误率统计） */
+    private Integer statusCode;
+    /** 请求耗时（毫秒，监控大盘：慢接口分析） */
+    private Integer durationMs;
     private LocalDateTime visitTime;
 }

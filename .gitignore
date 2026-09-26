@@ -37,3 +37,7 @@ build/
 
 ### Runtime uploads ###
 uploads/
+
+### Local secrets（支付宝沙箱密钥，严禁提交）###
+.env.local
+application-dev.yml

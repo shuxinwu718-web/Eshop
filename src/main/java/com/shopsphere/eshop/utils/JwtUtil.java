@@ -6,9 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +21,21 @@ public class JwtUtil {
 
     @Value("${jwt.expiration}")
     private Long expiration;
+
+    /**
+     * 全局复用的 JwtParser（构建后不可变、线程安全）。
+     * 原实现每次调用 Jwts.parserBuilder().build() —— jjwt 构建阶段会执行 ServiceLoader
+     * 扫描全 classpath 的 META-INF/services（逐个打开 JAR，JarFileFactory 内部有同步锁），
+     * 每请求 4~5 次 parser 构建 = 每请求 4~5 次全量 JAR 扫描，高并发下成为吞吐瓶颈（压测 jstack 实证）。
+     */
+    private JwtParser jwtParser;
+
+    @PostConstruct
+    void initParser() {
+        jwtParser = Jwts.parserBuilder()
+                .setSigningKey(getSecretKey())
+                .build();
+    }
 
     /**
      * 从 Token 中获取用户ID
@@ -39,11 +54,7 @@ public class JwtUtil {
             }
 
             // 3. 尝试解析
-            Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(getSecretKey())
-                    .build()
-                    .parseClaimsJws(token)
-                    .getBody();
+            Claims claims = jwtParser.parseClaimsJws(token).getBody();
 
             // 4. 获取用户ID
             Long userId = claims.get("userId", Long.class);
@@ -72,11 +83,7 @@ public class JwtUtil {
      * 从 Token 中获取用户名
      */
     public String getUsernameFromToken(String token) {
-        Claims claims = Jwts.parserBuilder()
-                .setSigningKey(getSecretKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+        Claims claims = jwtParser.parseClaimsJws(token).getBody();
         return claims.getSubject();
     }
 
@@ -102,11 +109,7 @@ public class JwtUtil {
      * 从 Token 中获取会话版本号
      */
     public Long getSessionVersionFromToken(String token) {
-        Claims claims = Jwts.parserBuilder()
-                .setSigningKey(getSecretKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+        Claims claims = jwtParser.parseClaimsJws(token).getBody();
         return claims.get("sver", Long.class);
     }
 
@@ -115,7 +118,7 @@ public class JwtUtil {
      */
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder().setSigningKey(getSecretKey()).build().parseClaimsJws(token);
+            jwtParser.parseClaimsJws(token);
             return true;
         } catch (ExpiredJwtException e) {
             log.warn("Token 已过期: {}", e.getMessage());

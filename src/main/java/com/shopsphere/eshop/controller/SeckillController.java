@@ -22,7 +22,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -54,6 +56,27 @@ public class SeckillController {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest request;
+
+    // ========== 秒杀限流配置（默认值与原硬编码一致，可在 application.yml / 环境变量覆盖） ==========
+    @Value("${seckill.rate-limit.enabled:true}")
+    private boolean rateLimitEnabled;
+    @Value("${seckill.rate-limit.ip-limit:5}")
+    private long ipLimit;
+    @Value("${seckill.rate-limit.ip-window-seconds:10}")
+    private long ipWindowSeconds;
+    @Value("${seckill.rate-limit.user-limit:1}")
+    private long userLimit;
+    @Value("${seckill.rate-limit.user-window-seconds:2}")
+    private long userWindowSeconds;
+
+    /**
+     * 固定窗口限流原子脚本：INCR + 首次 EXPIRE 合并为 1 次 RTT。
+     * 原实现两步命令非原子——INCR 之后 EXPIRE 之前连接断开会导致 key 永不过期，计数累积后误杀。
+     */
+    private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT = new DefaultRedisScript<>(
+            "local c = redis.call('INCR', KEYS[1]) " +
+            "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
+            "return c", Long.class);
 
     @GetMapping("/sessions")
     public Result<List<SeckillSessionVO>> getSessions(@CurrentUserId Long userId) {
@@ -153,32 +176,36 @@ public class SeckillController {
     public Result<?> seckill(@PathVariable Long sessionId,
                              @RequestBody(required = false) SeckillBuyDTO body,
                              @CurrentUserId Long userId) {
-        // IP 频率限制：每 IP 每 10 秒最多 5 次
-        String ip = request.getRemoteAddr();
-        String rateKey = RATE_KEY + "ip:" + ip;
-        Long ipCount = stringRedisTemplate.opsForValue().increment(rateKey);
-        if (ipCount == null) ipCount = 0L;
-        if (ipCount == 1) {
-            stringRedisTemplate.expire(rateKey, 10, TimeUnit.SECONDS);
-        }
-        if (ipCount > 5) {
-            throw new BusinessException("操作太频繁，请稍后再试");
-        }
-
-        // 用户频率限制：每用户每 2 秒最多 1 次
-        String userRateKey = RATE_KEY + "user:" + userId;
-        Long userCount = stringRedisTemplate.opsForValue().increment(userRateKey);
-        if (userCount == null) userCount = 0L;
-        if (userCount == 1) {
-            stringRedisTemplate.expire(userRateKey, 2, TimeUnit.SECONDS);
-        }
-        if (userCount > 1) {
-            throw new BusinessException("操作太频繁，请稍后再试");
-        }
-
+        checkRateLimit(userId);
         Long orderId = seckillService.seckill(sessionId, userId, body != null ? body.getAddressId() : null);
         // 秒杀商品模式返回订单ID（前端跳转支付）；秒杀券模式返回提示语
         return Result.success(orderId != null ? orderId : "抢购成功");
+    }
+
+    /**
+     * 秒杀接口限流：IP + 用户两级固定窗口计数（Redis INCR）。
+     * 阈值/窗口/开关均可在配置中调整；压测场景可通过 seckill.rate-limit.enabled=false 关闭以测真实吞吐。
+     */
+    private void checkRateLimit(Long userId) {
+        if (!rateLimitEnabled) {
+            return;
+        }
+        // IP 频率限制：每 IP 每 ip-window-seconds 秒最多 ip-limit 次（Lua 原子计数+过期）
+        String ip = request.getRemoteAddr();
+        String rateKey = RATE_KEY + "ip:" + ip;
+        Long ipCount = stringRedisTemplate.execute(RATE_LIMIT_SCRIPT,
+                List.of(rateKey), String.valueOf(ipWindowSeconds));
+        if (ipCount != null && ipCount > ipLimit) {
+            throw new BusinessException("操作太频繁，请稍后再试");
+        }
+
+        // 用户频率限制：每用户每 user-window-seconds 秒最多 user-limit 次
+        String userRateKey = RATE_KEY + "user:" + userId;
+        Long userCount = stringRedisTemplate.execute(RATE_LIMIT_SCRIPT,
+                List.of(userRateKey), String.valueOf(userWindowSeconds));
+        if (userCount != null && userCount > userLimit) {
+            throw new BusinessException("操作太频繁，请稍后再试");
+        }
     }
 
     /**

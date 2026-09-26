@@ -13,24 +13,26 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory,
+                                                       GenericJackson2JsonRedisSerializer genericJacksonSerializer) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(factory);
         // 设置 key 和 value 的序列化方式
         template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(genericJacksonSerializer());
+        template.setValueSerializer(genericJacksonSerializer);
         template.setHashKeySerializer(new StringRedisSerializer());
-        template.setHashValueSerializer(genericJacksonSerializer());
+        template.setHashValueSerializer(genericJacksonSerializer);
         template.afterPropertiesSet();
         return template;
     }
 
     @Bean
-    public GenericJackson2JsonRedisSerializer genericJacksonSerializer() {
+    public GenericJackson2JsonRedisSerializer genericJacksonSerializer(JavaTimeModule javaTimeModule) {
         ObjectMapper mapper = new ObjectMapper();
-        // 注册 JSR310 模块以支持 LocalDateTime 等 Java 8 日期类型
-        mapper.registerModule(new JavaTimeModule());
-        // 禁止将日期序列化为时间戳，使用 ISO-8601 字符串格式
+        // 复用全局 JSR310 模块：缓存时间格式与接口保持一致（yyyy-MM-dd HH:mm:ss），
+        // 且反序列化兼容旧缓存中的 ISO 带 T 数据
+        mapper.registerModule(javaTimeModule);
+        // 禁止将日期序列化为时间戳，使用字符串格式
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return new GenericJackson2JsonRedisSerializer(mapper);
     }

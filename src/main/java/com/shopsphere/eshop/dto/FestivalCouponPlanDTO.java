@@ -1,6 +1,5 @@
 package com.shopsphere.eshop.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -24,11 +23,9 @@ public class FestivalCouponPlanDTO {
     private String festivalIcon;
 
     @NotNull(message = "开始日期不能为空")
-    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate startDate;
 
     @NotNull(message = "结束日期不能为空")
-    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate endDate;
 
     @NotNull(message = "所需签到天数不能为空")

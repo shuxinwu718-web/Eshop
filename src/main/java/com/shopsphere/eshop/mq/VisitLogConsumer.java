@@ -29,7 +29,10 @@ public class VisitLogConsumer {
             visitLog.setUserId(msg.getUserId());
             visitLog.setIp(msg.getIp());
             visitLog.setUserAgent(msg.getUserAgent());
+            visitLog.setMethod(msg.getMethod());
             visitLog.setRequestUri(msg.getRequestUri());
+            visitLog.setStatusCode(msg.getStatusCode());
+            visitLog.setDurationMs(msg.getDurationMs());
             visitLog.setVisitTime(msg.getVisitTime());
 
             visitLogMapper.insert(visitLog);

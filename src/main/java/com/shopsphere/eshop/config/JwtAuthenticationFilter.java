@@ -103,7 +103,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // 6. 更新用户在线心跳
                 onlineUserService.updateHeartbeat(userId, username);
 
-                log.info("✅ 用户 {} 认证成功，请求路径: {}", username, requestUri);
+                // 认证成功是每请求事件，降为 debug：info 级同步日志在洪峰下串行化成为吞吐瓶颈（压测实测）
+                log.debug("用户 {} 认证成功，请求路径: {}", username, requestUri);
             } else {
                 log.warn("Token 验证失败，请求路径: {}", requestUri);
             }

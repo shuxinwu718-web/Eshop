@@ -1,6 +1,5 @@
 package com.shopsphere.eshop.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -38,11 +37,9 @@ public class GroupBuyActivitySaveDTO {
     private Integer durationHours;
 
     @NotNull(message = "请选择活动开始时间")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime startTime;
 
     @NotNull(message = "请选择活动结束时间")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime endTime;
 
     @NotNull(message = "请输入拼团可售库存")

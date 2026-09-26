@@ -6,6 +6,7 @@ import com.shopsphere.eshop.dto.ProductSaveDTO;
 import com.shopsphere.eshop.entity.Product;
 import com.shopsphere.eshop.vo.HotProductVO;
 import com.shopsphere.eshop.vo.ProductSalesVO;
+import com.shopsphere.eshop.vo.RelatedProductsVO;
 
 import java.util.List;
 
@@ -20,6 +21,14 @@ public interface ProductService {
     void batchUpdatePinyin();
     List<HotProductVO> getHotProducts(int limit);
     List<ProductSalesVO> getProductSalesByMerchant(Long merchantId);
+
+    /**
+     * 详情页关联推荐：同类相似商品 + 同店热销商品
+     *
+     * @param productId 当前商品ID（推荐结果会排除它）
+     * @param limit     每组推荐数量上限
+     */
+    RelatedProductsVO getRelatedProducts(Long productId, int limit);
 
     /**
      * 商品浏览量 +1（Redis INCR 原子计数，定时异步落库）

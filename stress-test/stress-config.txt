@@ -1,0 +1,9 @@
+﻿# 压测配置摘要 (20260908_105853)
+sessionId=20
+couponId=32
+stock=100000
+userCount=100
+tokenFile=tokens.csv
+seckillUrl=http://localhost:8080/api/seckill/20
+# JMeter 运行示例:
+#   jmeter -n -t seckill-test.jmx -l result.jtl -e -o report

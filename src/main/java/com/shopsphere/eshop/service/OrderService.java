@@ -17,6 +17,9 @@ public interface OrderService {
     Order createOrder(OrderCreateDTO dto, Long userId);
     void cancelOrder(Long orderId, Long userId);
     void payOrder(Long orderId, Long userId, BigDecimal actualAmount);
+
+/** 修改待付款订单的支付方式（收银台改选时同步回订单，保证一致） */
+void updatePayMethod(Long orderId, Long userId, Integer payMethod);
     Page<OrderVO> pageQuery(OrderPageQueryDTO dto, Long userId);
     OrderVO getOrderDetail(Long orderId, Long userId);
     OrderVO getAdminOrderDetail(Long orderId);

@@ -174,6 +174,10 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(totalAmount);
         order.setOrderStatus(0);
         order.setPayAmount(payAmount);
+        // 支付方式：结算页选定并落库（1微信 2支付宝），收银台据此预选
+        order.setPayMethod(dto.getPayMethod() != null
+                && dto.getPayMethod() == Order.PAY_METHOD_WECHAT
+                ? Order.PAY_METHOD_WECHAT : Order.PAY_METHOD_ALIPAY);
         order.setReceiverName(receiverName);
         order.setReceiverPhone(receiverPhone);
         order.setReceiverAddress(receiverAddress);
@@ -581,6 +585,25 @@ public class OrderServiceImpl implements OrderService {
 
 
     @Override
+    public void updatePayMethod(Long orderId, Long userId, Integer payMethod) {
+        if (payMethod == null
+                || (payMethod != Order.PAY_METHOD_WECHAT && payMethod != Order.PAY_METHOD_ALIPAY)) {
+            throw new BusinessException("不支持的支付方式");
+        }
+        Order order = orderMapper.selectById(orderId);
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new BusinessException("订单不存在");
+        }
+        if (order.getOrderStatus() != Order.STATUS_PENDING_PAY) {
+            throw new BusinessException("订单状态异常，无法修改支付方式");
+        }
+        Order update = new Order();
+        update.setId(orderId);
+        update.setPayMethod(payMethod);
+        orderMapper.updateById(update);
+    }
+
+    @Override
     @Transactional
     public void confirmReceive(Long orderId, Long userId) {
         Order order = orderMapper.selectById(orderId);
@@ -706,6 +729,7 @@ public class OrderServiceImpl implements OrderService {
             vo.setPayAmount(order.getPayAmount());
             vo.setStatus(order.getOrderStatus());
             vo.setPayStatus(order.getPayStatus());
+            vo.setPayMethod(order.getPayMethod());
             vo.setCreateTime(order.getCreateTime());
             vo.setReceiverName(order.getReceiverName());
             vo.setReceiverPhone(order.getReceiverPhone());

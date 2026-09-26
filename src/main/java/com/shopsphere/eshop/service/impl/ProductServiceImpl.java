@@ -24,6 +24,8 @@ import com.shopsphere.eshop.service.ProductSyncService;
 import com.shopsphere.eshop.utils.PinyinUtils;
 import com.shopsphere.eshop.vo.HotProductVO;
 import com.shopsphere.eshop.vo.ProductSalesVO;
+import com.shopsphere.eshop.vo.RelatedProductsVO;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -155,9 +157,28 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        // 2. 保存SKU
+        // 2. 保存SKU（先删后增）
+        //    修复：删除前先按"规格内容"缓存旧SKU销量，重插时回填。
+        //    否则商家每次编辑保存都会把SKU销量清零，
+        //    导致 product.sales 与 SUM(product_sku.sales) 不一致。
+        Map<String, Integer> oldSalesMap = new HashMap<>();
+        int oldSalesTotal = 0;
+        List<ProductSku> oldSkus = productSkuMapper.selectList(
+                new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, productId));
+        for (ProductSku oldSku : oldSkus) {
+            int sales = oldSku.getSales() != null ? oldSku.getSales() : 0;
+            oldSalesTotal += sales;
+            if (sales > 0) {
+                oldSalesMap.merge(canonicalSpecs(oldSku.getSpecs()), sales, Integer::sum);
+            }
+        }
+        // 未能按规格内容匹配的旧销量（如商家改了规格名/值），兜底归属到第一条新SKU，
+        // 保持总销量守恒：product.sales 不变，则 SUM(sku.sales) 也不变
+        int leftoverSales = oldSalesTotal;
+
         productSkuMapper.delete(
                 new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, productId));
+        ProductSku firstInserted = null;
         if (dto.getSkus() != null) {
             for (ProductSaveDTO.ProductSkuDTO skuDTO : dto.getSkus()) {
                 ProductSku sku = new ProductSku();
@@ -167,8 +188,53 @@ public class ProductServiceImpl implements ProductService {
                 sku.setStock(skuDTO.getStock());
                 sku.setSkuCode(skuDTO.getSkuCode());
                 sku.setImage(skuDTO.getImage());
+                Integer carried = oldSalesMap.remove(canonicalSpecs(skuDTO.getSpecs()));
+                int sales = carried != null ? carried : 0;
+                if (sales > 0) {
+                    leftoverSales -= sales;
+                }
+                sku.setSales(sales);
                 productSkuMapper.insert(sku);
+                if (firstInserted == null) {
+                    firstInserted = sku;
+                }
             }
+            if (leftoverSales > 0 && firstInserted != null) {
+                firstInserted.setSales(firstInserted.getSales() + leftoverSales);
+                productSkuMapper.updateById(firstInserted);
+            }
+        }
+        // 若 dto.getSkus() 为空（商品改为无规格模式），SKU 全部删除、销量仅保留在 product.sales 上，
+        // 与无规格商品的口径一致，无需额外处理
+    }
+
+    /**
+     * 规格内容规范化键：解析 JSON 后按键排序拼接。
+     * 使键序/空格不同但内容相同的 specs（前端 JSON.stringify 与数据库 JSON 列的
+     * 序列化格式不同）能视为同一规格组合，用于销量回填匹配。
+     */
+    private String canonicalSpecs(String specsJson) {
+        if (specsJson == null || specsJson.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(specsJson);
+            if (!node.isObject()) {
+                return specsJson.trim();
+            }
+            TreeMap<String, String> sorted = new TreeMap<>();
+            node.fields().forEachRemaining(e -> sorted.put(e.getKey(), e.getValue().asText()));
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> e : sorted.entrySet()) {
+                if (sb.length() > 0) {
+                    sb.append('|');
+                }
+                sb.append(e.getKey()).append('=').append(e.getValue());
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // 解析失败退回原始文本（不应发生：DB 的 JSON 列和前端 stringify 均为合法 JSON）
+            return specsJson.trim();
         }
     }
 
@@ -477,6 +543,34 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public List<ProductSalesVO> getProductSalesByMerchant(Long merchantId) {
         return productMapper.selectProductSalesByMerchant(merchantId);
+    }
+
+    @Override
+    public RelatedProductsVO getRelatedProducts(Long productId, int limit) {
+        RelatedProductsVO vo = new RelatedProductsVO();
+        Product current = productMapper.selectById(productId);
+        if (current == null) {
+            return vo;
+        }
+
+        // 1. 同类相似商品：同分类 + 在售 + 排除自身（同类不足时不拿无关商品充数，前端自动隐藏空组）
+        if (current.getCategoryId() != null) {
+            vo.setSimilar(productMapper.selectSimilarProducts(current.getCategoryId(), productId, limit));
+        }
+
+        // 2. 同店热销：同商家 + 在售 + 排除自身，并剔除已在「相似商品」中展示过的商品（避免同页重复）
+        if (current.getMerchantId() != null) {
+            Set<Long> shown = new HashSet<>();
+            shown.add(productId);
+            vo.getSimilar().forEach(p -> shown.add(p.getId()));
+            // 多取一些用于去重后补位，保证最终数量尽量达到 limit
+            vo.setStoreHot(productMapper.selectStoreHotProducts(current.getMerchantId(), productId, limit + shown.size())
+                    .stream()
+                    .filter(p -> shown.add(p.getId()))
+                    .limit(limit)
+                    .toList());
+        }
+        return vo;
     }
 
     /**

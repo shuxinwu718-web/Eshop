@@ -10,4 +10,4 @@ spring:
 
 logging:
   level:
-    com.shopsphere: debug
+    com.shopsphere: info # 生产口径；压测验证时临时调整为 info（debug 会导致每请求 19+ 行 SQL/WARN 日志，console 同步锁成为瓶颈）

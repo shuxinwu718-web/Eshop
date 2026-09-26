@@ -57,6 +57,8 @@ public class OnlineUserServiceImpl implements OnlineUserService {
     @Override
     public void incrementSessionVersion(Long userId) {
         stringRedisTemplate.opsForValue().increment(SESSION_VER_KEY + userId);
+        // 会话版本 key 设置保留期，避免无限累积；INCR 不会重置已有 TTL，这里主动续期
+        stringRedisTemplate.expire(SESSION_VER_KEY + userId, SESSION_VER_TTL_DAYS, TimeUnit.DAYS);
     }
 
     @Override

@@ -17,6 +17,8 @@ public class OrderCreateDTO {
     private String remark;
     private Long addressId;        // 新增
     private Long userCouponId;   // 新增：用户选中的优惠券记录ID
+    /** 支付方式：1微信 2支付宝（默认2支付宝） */
+    private Integer payMethod;
     @Data
     public static class OrderItemDTO {
         @NotNull(message = "商品ID不能为空")

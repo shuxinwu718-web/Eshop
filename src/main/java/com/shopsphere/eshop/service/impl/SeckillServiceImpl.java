@@ -3,6 +3,8 @@ package com.shopsphere.eshop.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.shopsphere.eshop.constant.SeckillSessionStatus;
 import com.shopsphere.eshop.dto.SeckillSessionSaveDTO;
 import com.shopsphere.eshop.entity.*;
@@ -14,16 +16,20 @@ import com.shopsphere.eshop.service.UserCouponService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -38,6 +44,47 @@ public class SeckillServiceImpl implements SeckillService {
     /** 活跃场次列表缓存 key（与 SeckillController 保持一致） */
     public static final String SESSIONS_CACHE_KEY = "seckill:sessions";
 
+    // ==================== 高并发优化：本地缓存 + Lua 原子抢购 ====================
+
+    /**
+     * 场次元数据本地缓存（存在性/时间窗口/状态/类型）。
+     * 高并发下每个请求都会校验场次，若每次都查 DB，光前置校验就能拖垮连接池；
+     * 缓存 5s TTL，秒杀开始/结束存在秒级判定误差（业务可接受）。
+     * Optional 包装用于缓存"不存在"结果，防止恶意 sessionId 穿透缓存打 DB。
+     */
+    private final Cache<Long, Optional<SeckillSession>> sessionCache = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(5))
+            .maximumSize(1_000)
+            .build();
+
+    /** 优惠券元数据本地缓存（状态/限领数），TTL 30s，管理端改券后最多 30s 生效 */
+    private final Cache<Long, Optional<Coupon>> couponCache = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(30))
+            .maximumSize(1_000)
+            .build();
+
+    /** 商品元数据本地缓存（上架状态/商家归属），TTL 10s */
+    private final Cache<Long, Optional<Product>> productCache = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(10))
+            .maximumSize(1_000)
+            .build();
+
+    /** 本地售罄标记：售罄后请求在进入 Redis/DB 之前直接拒绝，O(1) 挡住全部无效流量 */
+    private final ConcurrentHashMap<Long, Boolean> localSoldOut = new ConcurrentHashMap<>();
+
+    /**
+     * 抢购原子脚本：判重 + 扣库存 + 记录用户合并为 1 次 Redis RTT。
+     * 原实现为 SISMEMBER / DECR / SADD 三次往返，非原子且存在中间态竞态。
+     */
+    private final DefaultRedisScript<Long> claimScript = buildClaimScript();
+
+    private static DefaultRedisScript<Long> buildClaimScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setLocation(new ClassPathResource("scripts/seckill_claim.lua"));
+        script.setResultType(Long.class);
+        return script;
+    }
+
     private final SeckillSessionMapper seckillSessionMapper;
     private final CouponMapper couponMapper;
     private final UserCouponMapper userCouponMapper;
@@ -51,6 +98,12 @@ public class SeckillServiceImpl implements SeckillService {
     private final NoticeService noticeService;
     private final UserCouponService userCouponService;
     private final ObjectMapper objectMapper;
+    /**
+     * 编程式事务：只包裹落库段（扣库存 + 写单）。
+     * 原实现 @Transactional 标注在整个抢购方法上，导致被拒绝的请求（重复/售罄，通常占绝大多数）
+     * 也要借出 DB 连接并开启空事务——高并发下连接池被无效流量占满，成为吞吐瓶颈。
+     */
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     public Page<SeckillSession> pageQuery(String sessionName, Integer status, Long couponId,
@@ -262,6 +315,7 @@ public class SeckillServiceImpl implements SeckillService {
         }
 
         evictSessionsCache();
+        evictLocalCache(session);
         log.info("秒杀场次 [{}] 已更新，库存 {}", session.getSessionName(), session.getSeckillStock());
     }
 
@@ -300,14 +354,24 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("秒杀场次不存在");
         }
         stringRedisTemplate.opsForValue().set(STOCK_KEY + id, String.valueOf(session.getSeckillStock()));
+        localSoldOut.remove(id);
         log.info("场次 [{}] 库存已从 DB 恢复: {}", session.getSessionName(), session.getSeckillStock());
     }
 
+    /**
+     * 抢购主流程不加 @Transactional：拒绝路径（售罄/重复，占绝大多数）不借出 DB 连接；
+     * 仅落库段（第 4 步）用 transactionTemplate 包裹，事务边界最小化。
+     */
     @Override
-    @Transactional
     public Long seckill(Long sessionId, Long userId, Long addressId) {
-        // 1. 校验场次
-        SeckillSession session = seckillSessionMapper.selectById(sessionId);
+        // 0. 本地售罄标记前置拦截：售罄后 O(1) 拒绝，不打 Redis / DB
+        if (Boolean.TRUE.equals(localSoldOut.get(sessionId))) {
+            throw new BusinessException("秒杀券已抢完");
+        }
+
+        // 1. 校验场次（本地缓存，5s TTL；Optional 缓存"不存在"防穿透）
+        SeckillSession session = sessionCache.get(sessionId,
+                id -> Optional.ofNullable(seckillSessionMapper.selectById(id))).orElse(null);
         if (session == null) {
             log.warn("秒杀失败 - 场次不存在, sessionId={}, userId={}", sessionId, userId);
             throw new BusinessException("秒杀场次不存在");
@@ -328,8 +392,9 @@ public class SeckillServiceImpl implements SeckillService {
             return seckillProduct(session, userId, addressId);
         }
 
-        // 1a. 校验关联优惠券仍然有效
-        Coupon coupon = couponMapper.selectById(session.getCouponId());
+        // 1a. 校验关联优惠券仍然有效（本地缓存 30s）
+        Coupon coupon = couponCache.get(session.getCouponId(),
+                id -> Optional.ofNullable(couponMapper.selectById(id))).orElse(null);
         if (coupon == null) {
             throw new BusinessException("关联优惠券已不存在");
         }
@@ -337,89 +402,101 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("关联优惠券已停用");
         }
 
-        // 2. 检查限领与是否已持有：仅「未使用且未过期」的券算作已拥有，
-        //    已使用/已过期的券不占用名额，允许再次参与秒杀
-        String usersKey = USERS_KEY + sessionId;
-        int usable = userCouponService.countUsable(userId, session.getCouponId());
-        Integer limit = coupon.getLimitPerUser() != null ? coupon.getLimitPerUser() : 1;
-        if (usable >= limit) {
-            log.warn("秒杀失败 - 超过限领数量, sessionId={}, userId={}, usable={}, limit={}", sessionId, userId, usable, limit);
-            throw new BusinessException("您已达到该优惠券的领取上限");
-        }
-        if (usable > 0) {
-            log.warn("秒杀失败 - 已持有有效券, sessionId={}, userId={}", sessionId, userId);
-            throw new BusinessException("您已持有该秒杀优惠券，请先使用后再参与");
-        }
-
-        // 2a. 检查重复领取（Redis 防并发；若旧券已过期/已使用，允许重新参与并移除旧记录）
-        Boolean alreadyClaimed = stringRedisTemplate.opsForSet().isMember(usersKey, String.valueOf(userId));
-        if (Boolean.TRUE.equals(alreadyClaimed)) {
-            stringRedisTemplate.opsForSet().remove(usersKey, String.valueOf(userId));
-            log.info("秒杀 - 用户{}旧券已失效，重新参与场次{}", userId, sessionId);
-        }
-
-        // 3. Redis 扣减库存（原子操作）
-        String stockKey = STOCK_KEY + sessionId;
-        Long remain = stringRedisTemplate.opsForValue().decrement(stockKey);
-
-        // 3a. Redis key 不存在（宕机/丢失），从 DB 恢复后再试
-        if (remain == null) {
-            preheatStock(sessionId);
-            String recoveredStr = stringRedisTemplate.opsForValue().get(stockKey);
-            int recovered = recoveredStr != null ? Integer.parseInt(recoveredStr) : 0;
-            if (recovered <= 0) {
-                throw new BusinessException("秒杀券已抢完");
-            }
-            remain = stringRedisTemplate.opsForValue().decrement(stockKey);
-        }
-
-        if (remain < 0) {
-            stringRedisTemplate.opsForValue().increment(stockKey);
+        // 2. Lua 原子抢购：判重 + 扣库存 + 记录用户，1 次 Redis RTT 完成
+        //    拒绝路径（重复/售罄）在此直接结束，不再触发任何 DB 查询
+        Long remain = claimAtomically(sessionId, userId);
+        if (remain == -2) {
+            localSoldOut.put(sessionId, Boolean.TRUE);
             throw new BusinessException("秒杀券已抢完");
         }
-
-        // 4. 记录已领取用户（SADD 保证并发安全）
-        Long added = stringRedisTemplate.opsForSet().add(usersKey, String.valueOf(userId));
-        if (added == null || added == 0) {
-            stringRedisTemplate.opsForValue().increment(stockKey);
-            throw new BusinessException("您已领取过该秒杀券");
-        }
-
-        // 5. 落库
-        try {
-            // 原子扣减DB库存，防止与 Redis 库存不一致
-            if (seckillSessionMapper.deductStock(sessionId) == 0) {
+        if (remain == -3) {
+            // Redis key 丢失（宕机/被清），从 DB 恢复后重试一次
+            preheatStock(sessionId);
+            remain = claimAtomically(sessionId, userId);
+            if (remain < 0) {
                 throw new BusinessException("秒杀券已抢完");
             }
+        }
 
-            UserCoupon uc = new UserCoupon();
-            uc.setUserId(userId);
-            uc.setCouponId(session.getCouponId());
-            uc.setStatus(0);
-            uc.setGetTime(LocalDateTime.now());
-            userCouponMapper.insert(uc);
+        // 3. 限领与已持有校验（仅 Redis 记录命中/抢购成功路径才查 DB）
+        //    「未使用且未过期」的券算作已拥有，已使用/已过期的券不占用名额，允许再次参与
+        Integer limit = coupon.getLimitPerUser() != null ? coupon.getLimitPerUser() : 1;
+        String usersKey = USERS_KEY + sessionId;
+        if (remain == -1) {
+            int usable = userCouponService.countUsable(userId, session.getCouponId());
+            if (usable >= limit) {
+                // 高频拒绝路径不打 info/warn：同步 appender 在洪峰下会串行化成为吞吐瓶颈（压测实测）
+                log.debug("秒杀失败 - 超过限领数量, sessionId={}, userId={}, usable={}, limit={}",
+                        sessionId, userId, usable, limit);
+                throw new BusinessException("您已达到该优惠券的领取上限");
+            }
+            if (usable > 0) {
+                log.debug("秒杀失败 - 已持有有效券, sessionId={}, userId={}", sessionId, userId);
+                throw new BusinessException("您已持有该秒杀优惠券，请先使用后再参与");
+            }
+            // 旧券已失效：移除 Redis 旧记录后重新参与
+            stringRedisTemplate.opsForSet().remove(usersKey, String.valueOf(userId));
+            log.info("秒杀 - 用户{}旧券已失效，重新参与场次{}", userId, sessionId);
+            remain = claimAtomically(sessionId, userId);
+            if (remain < 0) {
+                throw new BusinessException("您已领取过该秒杀券");
+            }
+        } else {
+            // 抢购成功路径仍需校验限领数（limit_per_user > 1 的场次可能已领过但 Redis 未记录）
+            int usable = userCouponService.countUsable(userId, session.getCouponId());
+            if (usable >= limit) {
+                rollbackClaim(sessionId, userId);
+                throw new BusinessException("您已达到该优惠券的领取上限");
+            }
+        }
+
+        // 4. 落库（编程式事务只包裹 DB 段，事务边界最小化）
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                // 原子扣减DB库存，防止与 Redis 库存不一致
+                if (seckillSessionMapper.deductStock(sessionId) == 0) {
+                    throw new BusinessException("秒杀券已抢完");
+                }
+
+                UserCoupon uc = new UserCoupon();
+                uc.setUserId(userId);
+                uc.setCouponId(session.getCouponId());
+                uc.setStatus(0);
+                uc.setGetTime(LocalDateTime.now());
+                userCouponMapper.insert(uc);
+            });
 
             log.info("秒杀成功 - sessionId={}, userId={}, couponId={}, remain={}", sessionId, userId, session.getCouponId(), remain);
         } catch (Exception e) {
-            stringRedisTemplate.opsForValue().increment(stockKey);
-            stringRedisTemplate.opsForSet().remove(usersKey, String.valueOf(userId));
+            rollbackClaim(sessionId, userId);
             log.error("秒杀落库失败 - sessionId={}, userId={}", sessionId, userId, e);
             throw e;
         }
         return null; // 秒杀券模式无订单
     }
 
+    /** 执行 Lua 抢购脚本（判重 + 扣库存 + 记录用户），返回约定码 */
+    private Long claimAtomically(Long sessionId, Long userId) {
+        return stringRedisTemplate.execute(claimScript,
+                List.of(USERS_KEY + sessionId, STOCK_KEY + sessionId),
+                String.valueOf(userId));
+    }
+
+    /** 回滚一次 Redis 抢占（库存 +1、移除用户记录），用于上层校验失败/落库失败 */
+    private void rollbackClaim(Long sessionId, Long userId) {
+        stringRedisTemplate.opsForValue().increment(STOCK_KEY + sessionId);
+        stringRedisTemplate.opsForSet().remove(USERS_KEY + sessionId, String.valueOf(userId));
+    }
+
     /**
-     * 秒杀商品模式抢购：Redis 防重复 + 原子扣库存，DB 扣减秒杀/商品库存，生成待支付秒杀订单
+     * 秒杀商品模式抢购：本地缓存元数据校验 + Lua 原子抢购，DB 扣减秒杀/商品库存，生成待支付秒杀订单
      */
-    @Transactional
     public Long seckillProduct(SeckillSession session, Long userId, Long addressId) {
         Long sessionId = session.getId();
-        String stockKey = STOCK_KEY + sessionId;
-        String usersKey = USERS_KEY + sessionId;
 
-        // 1. 校验商品/SKU 与用户身份
-        Product product = productMapper.selectById(session.getProductId());
+        // 1. 校验商品/SKU 与用户身份（商品元数据走本地缓存 10s）
+        Product product = productCache.get(session.getProductId(),
+                id -> Optional.ofNullable(productMapper.selectById(id))).orElse(null);
         if (product == null) {
             throw new BusinessException("秒杀商品不存在");
         }
@@ -437,7 +514,7 @@ public class SeckillServiceImpl implements SeckillService {
             }
         }
 
-        // 2. 校验收货地址（秒杀商品下单必填）
+        // 2. 校验收货地址（秒杀商品下单必填；地址属于用户动态数据，不缓存）
         if (addressId == null) {
             throw new BusinessException("请先完善收货地址");
         }
@@ -446,59 +523,55 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("收货地址不存在");
         }
 
-        // 3. 检查重复抢购（早于库存扣减）
-        Boolean already = stringRedisTemplate.opsForSet().isMember(usersKey, String.valueOf(userId));
-        if (Boolean.TRUE.equals(already)) {
+        // 3. Lua 原子抢购：判重 + 扣库存 + 记录用户，1 次 Redis RTT
+        //    商品模式无"旧券重参与"语义，重复抢购直接拒绝
+        Long remain = claimAtomically(sessionId, userId);
+        if (remain == -1) {
             throw new BusinessException("您已抢购过该秒杀商品");
         }
-
-        // 4. Redis 原子扣减库存
-        Long remain = stringRedisTemplate.opsForValue().decrement(stockKey);
-        if (remain == null) {
-            preheatStock(sessionId);
-            String recoveredStr = stringRedisTemplate.opsForValue().get(stockKey);
-            int recovered = recoveredStr != null ? Integer.parseInt(recoveredStr) : 0;
-            if (recovered <= 0) {
-                throw new BusinessException("秒杀商品已抢完");
-            }
-            remain = stringRedisTemplate.opsForValue().decrement(stockKey);
-        }
-        if (remain < 0) {
-            stringRedisTemplate.opsForValue().increment(stockKey);
+        if (remain == -2) {
+            localSoldOut.put(sessionId, Boolean.TRUE);
             throw new BusinessException("秒杀商品已抢完");
         }
-        Long added = stringRedisTemplate.opsForSet().add(usersKey, String.valueOf(userId));
-        if (added == null || added == 0) {
-            stringRedisTemplate.opsForValue().increment(stockKey);
-            throw new BusinessException("您已抢购过该秒杀商品");
-        }
-
-        // 5. 落库：扣秒杀库存 + 扣商品/SKU库存 + 生成订单（事务内）
-        try {
-            if (seckillSessionMapper.deductStock(sessionId) == 0) {
+        if (remain == -3) {
+            // Redis key 丢失（宕机/被清），从 DB 恢复后重试一次
+            preheatStock(sessionId);
+            remain = claimAtomically(sessionId, userId);
+            if (remain < 0) {
                 throw new BusinessException("秒杀商品已抢完");
             }
-            if (sku != null) {
-                if (productSkuMapper.deductStock(sku.getId(), 1) == 0) {
-                    throw new BusinessException("商品规格库存不足");
+        }
+
+        // 4. 落库：扣秒杀库存 + 扣商品/SKU库存 + 生成订单（编程式事务只包裹 DB 段）
+        final ProductSku skuRef = sku;
+        Long orderId;
+        try {
+            orderId = transactionTemplate.execute(status -> {
+                if (seckillSessionMapper.deductStock(sessionId) == 0) {
+                    throw new BusinessException("秒杀商品已抢完");
                 }
-                syncProductStock(product.getId());
-            } else {
-                if (productMapper.deductStock(product.getId(), 1) == 0) {
-                    throw new BusinessException("商品库存不足");
+                if (skuRef != null) {
+                    if (productSkuMapper.deductStock(skuRef.getId(), 1) == 0) {
+                        throw new BusinessException("商品规格库存不足");
+                    }
+                    syncProductStock(product.getId());
+                } else {
+                    if (productMapper.deductStock(product.getId(), 1) == 0) {
+                        throw new BusinessException("商品库存不足");
+                    }
                 }
-            }
-            Order order = createSeckillOrder(session, product, sku, userId, address);
+                Order order = createSeckillOrder(session, product, skuRef, userId, address);
+                return order.getId();
+            });
             log.info("秒杀商品成功 - sessionId={}, userId={}, orderId={}, remain={}",
-                    sessionId, userId, order.getId(), remain);
-            return order.getId();
+                    sessionId, userId, orderId, remain);
         } catch (Exception e) {
-            // 回滚 Redis 库存与已抢用户记录（DB 变更由事务回滚）
-            stringRedisTemplate.opsForValue().increment(stockKey);
-            stringRedisTemplate.opsForSet().remove(usersKey, String.valueOf(userId));
+            // 回滚 Redis 库存与已抢用户记录（DB 变更由编程式事务回滚）
+            rollbackClaim(sessionId, userId);
             log.error("秒杀商品落库失败 - sessionId={}, userId={}", sessionId, userId, e);
             throw e;
         }
+        return orderId;
     }
 
     /** SKU 扣减后回写商品总库存（与普通下单逻辑保持一致） */
@@ -643,6 +716,8 @@ public class SeckillServiceImpl implements SeckillService {
                 s.setStatus(SeckillSessionStatus.ENDED);
                 seckillSessionMapper.updateById(s);
                 cleanRedisKeys(s.getId());
+                sessionCache.invalidate(s.getId());
+                localSoldOut.remove(s.getId());
                 listChanged = true;
                 log.info("秒杀场次 [{}] 已自动结束，Redis 缓存已清理", s.getSessionName());
             }
@@ -665,5 +740,17 @@ public class SeckillServiceImpl implements SeckillService {
     /** 清除活跃场次列表缓存（影响活跃场次集合的变更后调用，短TTL作为兜底） */
     private void evictSessionsCache() {
         stringRedisTemplate.delete(SESSIONS_CACHE_KEY);
+    }
+
+    /** 场次变更后失效本地元数据缓存与本地售罄标记（与 Redis 层缓存清理同步） */
+    private void evictLocalCache(SeckillSession session) {
+        sessionCache.invalidate(session.getId());
+        localSoldOut.remove(session.getId());
+        if (session.getCouponId() != null) {
+            couponCache.invalidate(session.getCouponId());
+        }
+        if (session.getProductId() != null) {
+            productCache.invalidate(session.getProductId());
+        }
     }
 }

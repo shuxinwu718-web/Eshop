@@ -9,9 +9,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.shopsphere.eshop.config.RabbitMQConfig.STOCK_QUEUE;
 
@@ -22,6 +25,7 @@ public class StockConsumer {
 
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @RabbitListener(queues = STOCK_QUEUE, ackMode = "MANUAL")
     @Transactional
@@ -60,8 +64,14 @@ public class StockConsumer {
                 return;
             }
 
-            // 清除 Redis 缓存
-            // 这里可以调用 redisTemplate.delete("product:detail:" + msg.getProductId());
+            // 事务提交后清除商品详情缓存，避免买家继续看到旧库存/旧销量
+            // （提前删除会读到未提交的旧库存，事务回滚后缓存重建结果也正确）
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    stringRedisTemplate.delete("product:detail:" + msg.getProductId());
+                }
+            });
 
             channel.basicAck(deliveryTag, false);
             log.info("扣库存任务完成，订单ID: {}", msg.getOrderId());

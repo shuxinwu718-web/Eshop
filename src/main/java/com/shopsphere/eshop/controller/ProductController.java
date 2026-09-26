@@ -86,6 +86,12 @@ public class ProductController {
         return Result.success(productService.getHotProducts(limit));
     }
 
+    @GetMapping("/{id}/related")
+    public Result<?> getRelatedProducts(@PathVariable Long id,
+                                        @RequestParam(defaultValue = "8") Integer limit) {
+        return Result.success(productService.getRelatedProducts(id, limit));
+    }
+
     @PostMapping("/batch-update-pinyin")
     public Result<?> batchUpdatePinyin() {
         productService.batchUpdatePinyin();

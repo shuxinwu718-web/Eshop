@@ -59,6 +59,48 @@ public interface ProductMapper extends BaseMapper<Product> {
     List<ProductSalesVO> selectProductSalesByMerchant(Long merchantId);
 
     /**
+     * 详情页关联推荐：同分类的在售商品（排除当前商品），按销量、评分降序
+     */
+    @Select("SELECT p.id, p.name, p.price, p.cover_image AS coverImage, p.description, " +
+           "COALESCE(sk.sales, 0) AS sales, " +
+           "ROUND(COALESCE(pc.avgRating, 0), 1) AS avgRating " +
+           "FROM product p " +
+           "LEFT JOIN (SELECT product_id, SUM(COALESCE(sales, 0)) AS sales " +
+           "           FROM product_sku GROUP BY product_id) sk ON p.id = sk.product_id " +
+           "LEFT JOIN (SELECT product_id, AVG(rating) AS avgRating " +
+           "           FROM product_comment " +
+           "           WHERE status = 1 AND deleted = 0 AND parent_id = 0 AND rating > 0 " +
+           "           GROUP BY product_id) pc ON p.id = pc.product_id " +
+           "WHERE p.deleted = 0 AND p.status = 1 " +
+           "AND p.category_id = #{categoryId} AND p.id <> #{excludeId} " +
+           "ORDER BY sales DESC, avgRating DESC " +
+           "LIMIT #{limit}")
+    List<HotProductVO> selectSimilarProducts(@Param("categoryId") Long categoryId,
+                                             @Param("excludeId") Long excludeId,
+                                             @Param("limit") int limit);
+
+    /**
+     * 详情页关联推荐：同商家的热销在售商品（排除当前商品），按销量、评分降序
+     */
+    @Select("SELECT p.id, p.name, p.price, p.cover_image AS coverImage, p.description, " +
+           "COALESCE(sk.sales, 0) AS sales, " +
+           "ROUND(COALESCE(pc.avgRating, 0), 1) AS avgRating " +
+           "FROM product p " +
+           "LEFT JOIN (SELECT product_id, SUM(COALESCE(sales, 0)) AS sales " +
+           "           FROM product_sku GROUP BY product_id) sk ON p.id = sk.product_id " +
+           "LEFT JOIN (SELECT product_id, AVG(rating) AS avgRating " +
+           "           FROM product_comment " +
+           "           WHERE status = 1 AND deleted = 0 AND parent_id = 0 AND rating > 0 " +
+           "           GROUP BY product_id) pc ON p.id = pc.product_id " +
+           "WHERE p.deleted = 0 AND p.status = 1 " +
+           "AND p.merchant_id = #{merchantId} AND p.id <> #{excludeId} " +
+           "ORDER BY sales DESC, avgRating DESC " +
+           "LIMIT #{limit}")
+    List<HotProductVO> selectStoreHotProducts(@Param("merchantId") Long merchantId,
+                                              @Param("excludeId") Long excludeId,
+                                              @Param("limit") int limit);
+
+    /**
      * 首页推荐店铺：统计有在售商品商家的商品数与总销量，按销量降序取前 N 家
      */
     @Select("SELECT p.merchant_id AS merchantId, " +

@@ -105,7 +105,8 @@ public class MerchantApplyServiceImpl implements MerchantApplyService {
                         .last("LIMIT 1")
         );
         if (applies.isEmpty()) {
-            throw new BusinessException("未找到入驻信息");
+            // 未申请过：返回空，由调用方决定展示表单还是提示（查询接口不抛异常）
+            return null;
         }
         MerchantApply apply = applies.get(0);
         MerchantApplyVO vo = convertToVO(apply);

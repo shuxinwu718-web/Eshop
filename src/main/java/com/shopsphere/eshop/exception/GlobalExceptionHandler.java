@@ -98,7 +98,8 @@ public class GlobalExceptionHandler {
     // 8. 自定义业务异常
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<?>> handleBusinessException(BusinessException ex) {
-        log.warn("业务异常: {}", ex.getMessage());
+        // 业务拒绝（如秒杀售罄/重复领取）是高频预期事件，降为 debug 避免洪峰下日志串行化拖垮吞吐
+        log.debug("业务异常: {}", ex.getMessage());
         return buildResponse(ex.getHttpStatus(), ex.getMessage());
     }
 

@@ -73,6 +73,23 @@ e-shop
 
 > 注：各消费者均为手动 ACK 模式，处理失败可重新入队，保证不丢消息。
 
+### 支付（支付宝沙箱）
+
+- 下单携带支付方式（微信=1 / 支付宝=2）；收银台 PayDialog 选支付方式，支付完成锁定支付方式
+- 支付宝走真实沙箱 channel（`application-dev.yml` 配置，密钥从外部 `.env.local` 读取，未入库），`return-url` 指向在线前端 `/pay/result` 回跳，并结合结果页轮询 `alipay.trade.query` 对账自愈（`reconcilePaidOrder`），支付幂等用状态机条件更新（CAS）保证
+- `PayController` + `PaymentTransaction`（支付流水）+ `db/V20260908__create_payment_transaction.sql`
+
+### 支付高并发兜底（秒杀）
+
+- 秒杀主流程**不包 @Transactional**（拒绝路径会借空事务挤占连接池），落库段用 `TransactionTemplate` 收窄
+- Redis Lua 原子扣减 + 判重防超卖（`scripts/seckill_claim.lua`），拒绝路径只打 debug 日志避免同步 Console 洪峰
+
+### 系统监控与访问日志
+
+- `MonitorController` + `monitor.mapper`：系统运行指标监控页（DB 行数统计）
+- `TraceFilter` 异步采集访问日志（`visit_log`，含 method/status/duration_ms），对高频轮询接口（秒杀场次、未读、验证码、SSE、监控页）自动噪声排除，避免虚高 PV/UV
+- `JacksonConfig`：全局统一 `LocalDateTime=yyyy-MM-dd HH:mm:ss`、`LocalDate=yyyy-MM-dd` 序列化，反序列化宽松兼容带 T/空格/毫秒格式；跨模块复用同一 JavaTimeModule
+
 ## 快速开始
 
 ### 环境要求

@@ -14,6 +14,12 @@ public class VisitLogMessage implements Serializable {
     private Long userId;
     private String ip;
     private String userAgent;
+    /** HTTP 请求方法（GET/POST/...，独立存储供监控大盘筛选展示） */
+    private String method;
     private String requestUri;
+    /** HTTP 状态码 */
+    private Integer statusCode;
+    /** 请求耗时（毫秒） */
+    private Integer durationMs;
     private LocalDateTime visitTime;
 }

@@ -46,6 +46,15 @@ public class OrderController {
         return Result.success("支付成功");
     }
 
+    /** 收银台改选支付方式时同步回订单（仅待付款订单可改） */
+    @PutMapping("/pay-method/{orderId}")
+    public Result<?> updatePayMethod(@PathVariable Long orderId,
+                                     @RequestBody PayMethodDTO dto,
+                                     @CurrentUserId Long userId) {
+        orderService.updatePayMethod(orderId, userId, dto.getPayMethod());
+        return Result.success("支付方式已更新");
+    }
+
     @PutMapping("/confirm-receive/{orderId}")
     public Result<?> confirmReceive(@PathVariable Long orderId,
                                     @CurrentUserId Long userId) {

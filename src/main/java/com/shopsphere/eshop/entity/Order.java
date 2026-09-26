@@ -44,6 +44,13 @@ public class Order {
     @TableField("pay_status")
     private Integer payStatus;
 
+    /** 支付方式：1微信 2支付宝（下单时选定，收银台预选；改选需同步回订单） */
+    public static final int PAY_METHOD_WECHAT = 1;
+    public static final int PAY_METHOD_ALIPAY = 2;
+
+    @TableField("pay_method")
+    private Integer payMethod;
+
     @TableField("order_status")
     private Integer orderStatus;
 

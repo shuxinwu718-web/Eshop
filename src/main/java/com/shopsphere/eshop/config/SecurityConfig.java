@@ -57,6 +57,8 @@ public class SecurityConfig {
                         // 秒杀 放行（用户端）
                         .requestMatchers("/api/seckill/sessions").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/seckill/*").authenticated()
+                        // 支付宝服务器异步通知（支付宝调用时不带 JWT，必须匿名放行；安全靠 RSA2 验签保证）
+                        .requestMatchers("/api/pay/alipay/notify").permitAll()
 
                         // 静态资源（图片、CSS、JS等）
                         .requestMatchers("/uploads/**").permitAll()  // ← 新增这一行

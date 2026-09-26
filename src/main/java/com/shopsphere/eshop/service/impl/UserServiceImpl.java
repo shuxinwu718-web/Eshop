@@ -8,6 +8,7 @@ import com.shopsphere.eshop.dto.UserPageQueryDTO;
 import com.shopsphere.eshop.entity.User;
 import com.shopsphere.eshop.mapper.UserMapper;
 import com.shopsphere.eshop.exception.BusinessException;
+import com.shopsphere.eshop.service.OnlineUserService;
 import com.shopsphere.eshop.service.UserCouponService;
 import com.shopsphere.eshop.service.UserService;
 import com.shopsphere.eshop.utils.JwtUtil;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -116,6 +118,8 @@ public class UserServiceImpl implements UserService {
         }
         // 递增会话版本，旧 token 自动失效（一号一端）
         Long sver = redisTemplate.opsForValue().increment("user:sver:" + user.getId());
+        // 会话版本 key 设置保留期，避免无限累积（INCR 不重置 TTL，这里主动续期）
+        redisTemplate.expire("user:sver:" + user.getId(), OnlineUserService.SESSION_VER_TTL_DAYS, TimeUnit.DAYS);
         String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole(), sver);
         Map<String, String> result = new HashMap<>();
         result.put("token", token);

@@ -117,6 +117,19 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- Caffeine 本地缓存：秒杀热点元数据（场次/商品/券）前置校验，减少高并发下 DB 查询 -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- 支付宝官方 SDK：沙箱/正式支付（统一下单、异步回调验签、查单、退款） -->
+        <dependency>
+            <groupId>com.alipay.sdk</groupId>
+            <artifactId>alipay-sdk-java</artifactId>
+            <version>4.38.200.ALL</version>
+        </dependency>
+
         <!-- Jackson JSR310 支持 Java 8 日期时间类型 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>

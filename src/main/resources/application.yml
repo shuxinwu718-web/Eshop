@@ -47,6 +47,30 @@ jwt:
   secret: ${JWT_SECRET:e-commerce-secret-key-2026-128bit-long-string-that-is-at-least-64-characters-long-and-very-secure-please-change-it}
   expiration: 14400000
 
+# ========== 秒杀接口限流 ==========
+# IP/用户两级固定窗口限流；压测时可设 enabled=false 测真实吞吐
+seckill:
+  rate-limit:
+    enabled: true
+    ip-limit: 5              # 每 IP 窗口内最多请求次数
+    ip-window-seconds: 10
+    user-limit: 1            # 每用户窗口内最多请求次数
+    user-window-seconds: 2
+
+# ========== 支付宝沙箱支付 ==========
+# 1. 开放平台注册后进入沙箱控制台获取 APPID / 网关；用密钥工具生成 RSA2 密钥对，
+#    应用公钥上传到沙箱控制台，应用私钥与"支付宝公钥(查看应用公钥旁)"填到下方
+# 2. notify-url 必须公网可达（本地开发用 natapp/cpolar 内网穿透），return-url 为前端支付结果页
+# 3. 上线正式环境：仅需把 gateway 换成正式网关并替换密钥，业务代码零改动
+alipay:
+  enabled: ${ALIPAY_ENABLED:false}   # 未配置密钥时保持 false，前端走模拟支付
+  gateway: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  app-id: ${ALIPAY_APP_ID:}
+  app-private-key: ${ALIPAY_APP_PRIVATE_KEY:}
+  alipay-public-key: ${ALIPAY_PUBLIC_KEY:}
+  notify-url: ${ALIPAY_NOTIFY_URL:}
+  return-url: ${ALIPAY_RETURN_URL:http://localhost:3000/pay/result}
+
 # ========== Elasticsearch 开关 ==========
 # 直接改下面这行 true/false 即可切换：
 #   true  = 启用 ES 搜索（需 ES 可达，地址见上方 spring.elasticsearch.uris）

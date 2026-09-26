@@ -15,6 +15,8 @@ public class OrderVO {
     private BigDecimal payAmount;   // 新增：实付金额
     private Integer status;
     private Integer payStatus;
+    /** 支付方式：1微信 2支付宝（下单时选定） */
+    private Integer payMethod;
     private LocalDateTime createTime;
     private String receiverName;
     private String receiverPhone;

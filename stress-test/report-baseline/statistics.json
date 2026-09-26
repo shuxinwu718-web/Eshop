@@ -1,0 +1,34 @@
+{
+  "POST /api/seckill" : {
+    "transaction" : "POST /api/seckill",
+    "sampleCount" : 5000,
+    "errorCount" : 4900,
+    "errorPct" : 98.0,
+    "meanResTime" : 359.0555999999998,
+    "medianResTime" : 301.0,
+    "minResTime" : 40.0,
+    "maxResTime" : 3092.0,
+    "pct1ResTime" : 479.0,
+    "pct2ResTime" : 600.9499999999998,
+    "pct3ResTime" : 2424.959999999999,
+    "throughput" : 217.00447029208803,
+    "receivedKBytesPerSec" : 110.78671580009548,
+    "sentKBytesPerSec" : 83.76711622759429
+  },
+  "Total" : {
+    "transaction" : "Total",
+    "sampleCount" : 5000,
+    "errorCount" : 4900,
+    "errorPct" : 98.0,
+    "meanResTime" : 359.0555999999998,
+    "medianResTime" : 301.0,
+    "minResTime" : 40.0,
+    "maxResTime" : 3092.0,
+    "pct1ResTime" : 479.0,
+    "pct2ResTime" : 600.9499999999998,
+    "pct3ResTime" : 2424.959999999999,
+    "throughput" : 217.00447029208803,
+    "receivedKBytesPerSec" : 110.78671580009548,
+    "sentKBytesPerSec" : 83.76711622759429
+  }
+}
