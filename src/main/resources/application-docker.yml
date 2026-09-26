@@ -9,3 +9,8 @@ spring:
       port: 6379
   elasticsearch:
     uris: http://eshop-es:9200
+  rabbitmq:
+    host: eshop-rabbitmq
+    port: 5672
+    username: guest
+    password: guest

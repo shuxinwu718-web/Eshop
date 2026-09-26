@@ -55,6 +55,25 @@ services:
     networks:
       - eshop-net
 
+  rabbitmq:
+    # 官方镜像自带 rabbitmq_delayed_message_exchange 插件文件，启动时 enable 即可，无需额外下载
+    image: rabbitmq:3.13-management
+    container_name: eshop-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    command: bash -c "rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange && rabbitmq-server"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+      - eshop-net
+
   app:
     build: .
     container_name: eshop-app
@@ -72,6 +91,8 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - eshop-net
 
@@ -79,6 +100,7 @@ volumes:
   mysql-data:
   es-data:
   uploads-data:
+  rabbitmq-data:
 
 networks:
   eshop-net:

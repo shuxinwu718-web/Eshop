@@ -101,11 +101,11 @@ e-shop
 - RabbitMQ 3.12+（默认 `localhost:5672`，guest/guest；**必须启用 `rabbitmq_delayed_message_exchange` 延迟消息插件**，否则订单超时取消功能不可用）
 - Elasticsearch 8.11（可选，无 ES 环境可关闭）
 
-> 注：当前 `docker-compose.yml` 尚未内置 RabbitMQ，容器化部署时请自行添加 RabbitMQ 服务（并加载延迟消息插件）；本地开发可直接安装并启动 RabbitMQ。
+> 注：RabbitMQ 依赖延迟消息插件，Docker Compose 已内置（启动时自动启用插件）；本地安装则需手动加载（见下方「RabbitMQ 延迟消息插件」说明）。
 
 ### 方式一：Docker Compose（推荐）
 
-一条命令启动 MySQL + Redis + Elasticsearch + 后端应用：
+一条命令启动 MySQL + Redis + Elasticsearch + RabbitMQ + 后端应用：
 
 ```bash
 docker compose up -d
@@ -113,7 +113,21 @@ docker compose up -d
 
 - MySQL 首次启动会自动执行 `sql/` 下的初始化脚本
 - 后端使用 `application-docker.yml`，默认端口 `8080`
-- 数据库/Redis/ES 通过容器内网互通，无需额外配置
+- 数据库/Redis/ES/RabbitMQ 通过容器内网互通，无需额外配置
+- RabbitMQ 管理后台：<http://localhost:15672>（guest/guest）
+
+### RabbitMQ 延迟消息插件说明
+
+订单超时自动取消依赖 `rabbitmq_delayed_message_exchange` 插件：
+
+- **Docker Compose 方式**：官方 `rabbitmq:3.13-management` 镜像自带该插件文件，`docker-compose.yml` 启动命令已自动启用，无需额外下载。
+- **本地安装方式**（非 Docker）：按 RabbitMQ 版本下载对应 `rabbitmq_delayed_message_exchange-*.ez` 插件包，放入 RabbitMQ 的 `plugins` 目录后执行：
+
+```bash
+rabbitmq-plugins enable rabbitmq_delayed_message_exchange
+```
+
+未启用该插件时，订单超时取消功能不可用（其余功能不受影响）。
 
 ### 方式二：本地运行
 
