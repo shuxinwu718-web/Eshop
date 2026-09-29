@@ -37,6 +37,8 @@ build/
 
 ### Runtime uploads ###
 uploads/
+# 冗余的图片压缩包（部署用）勿提交
+*.rar
 
 ### Local secrets（支付宝沙箱密钥，严禁提交）###
 .env.local

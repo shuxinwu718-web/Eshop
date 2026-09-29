@@ -28,6 +28,11 @@ void updatePayMethod(Long orderId, Long userId, Integer payMethod);
     void autoCancelExpiredOrders();
     void confirmReceive(Long orderId, Long userId);
 
+    /**
+     * 按发货单确认收货（多商家拆单时只签收指定发货单；全部发货单签收后订单才完成）
+     */
+    void confirmReceiveShipment(Long shipmentId, Long userId);
+
     // ========== 退款相关 ==========
 
     /**

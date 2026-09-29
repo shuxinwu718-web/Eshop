@@ -1,0 +1,178 @@
+# ============================================================================
+# E-Shop 全栈一键部署编排（Docker Compose Prod）
+#
+# 覆盖：MySQL + Redis + RabbitMQ + 后端(Java) + 前端(nginx) + AI客服(FastAPI)
+# （不包含 Elasticsearch：服务器内存/CPU 有限，后端 elasticsearch.enabled=false 走 MySQL 搜索兜底）
+# 所有服务打通在同一张内网 eshop-net，一条命令启动：
+#
+#   cd /opt/eshop && docker compose -f docker-compose.prod.yml up -d --build
+#
+# 【服务器目录布局】后端走 jar、前端走 dist，均不需要源码仓库
+#   /opt/eshop/
+#   ├── docker-compose.prod.yml     <- 本文件
+#   ├── .env                        <- 密钥（JWT/DASHSCOPE_API_KEY 等）
+#   ├── sql/                        <- 放 eshops_2026-09-24.sql（完整数据 dump，MySQL 首次启动自动导入）
+#   │                                （可重命名为 eshops.sql，路径对应下方 mysql 卷 ./sql）
+#   ├── rabbitmq/                    <- 放 rabbitmq_delayed_message_exchange-3.12.0.ez（延迟插件，挂载启用）
+#   ├── app/
+#   │   └── app.jar                 <- 本地 mvn package 打好的后端 fat jar（上传，挂载运行）
+#   ├── uploads/                    <- 后端上传/图片资源目录（挂载 /app/uploads）
+#   │                                （把你本地 e-shop/uploads 整份拷进来，旧图片即可访问）
+#   ├── ai-customer-service/        <- AI 源码（需 docker build，见该仓库）
+#   └── frontend/
+#       ├── nginx.conf             <- 前端仓库根的 nginx.conf（上传）
+#       └── dist/                  <- 前端本地打包产物（上传解压）
+#
+# 【密钥】在 /opt/eshop/.env 中注入（见文件末尾 environment 的 ${VAR}），至少含：
+#   JWT_SECRET=...             后端 JWT 密钥（务必改）
+#   DASHSCOPE_API_KEY=sk-...   AI 客服通义千问密钥
+#   ALIPAY_APP_ID / ALIPAY_APP_PRIVATE_KEY / ALIPAY_PUBLIC_KEY / ALIPAY_RETURN_URL（可选，真实支付）
+#
+# 访问：http://<服务器IP>         前端（nginx :80）
+#        http://<服务器IP>:8080   后端 Swagger
+#        http://<服务器IP>:15672  RabbitMQ 管理台（eshop/eshop123）
+# ============================================================================
+name: eshop-prod
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: eshop-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: eshops
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eshop-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: eshop-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eshop-net
+
+  rabbitmq:
+    # 注意：镜像小版本必须与延迟插件匹配。本地 docker 验证可用的组合是 rabbitmq:3.12 + 3.12.0 插件，
+    # 故服务器也用 3.12-management（若用 3.13 需换 3.13.x 的 .ez）。
+    image: rabbitmq:3.12-management
+    container_name: eshop-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      # 容器间跨主机名访问非 localhost，默认 guest 会被拒绝，需显式建账号（app 用 SPRING_RABBITMQ_* 对应）
+      RABBITMQ_DEFAULT_USER: eshop
+      RABBITMQ_DEFAULT_PASS: eshop123
+    # 启动前启用社区延迟消息插件（订单超时实时取消）。.ez 由本地 docker cp 取得，
+    # 需上传到 /opt/eshop/rabbitmq/ 并在下方挂载进容器插件目录。
+    command: bash -c "rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange && rabbitmq-server"
+    volumes:
+      - /opt/eshop/rabbitmq/rabbitmq_delayed_message_exchange-3.12.0.ez:/opt/rabbitmq/plugins/rabbitmq_delayed_message_exchange-3.12.0.ez:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+      - eshop-net
+
+  # ---------- 后端（Java Spring Boot，直接挂载本地打好的 fat jar，不依赖 Maven 构建） ----------
+  # 服务器上需把本地 mvn package 打出的 jar 上传到 /opt/eshop/app/app.jar。
+  app:
+    image: eclipse-temurin:17-jre
+    container_name: eshop-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    working_dir: /app
+    # 限制 JVM 堆大小，避免 2G 小机子上默认堆(~512MB)造成 GC 频繁；如机器>=4G 可适当调大
+    command: ["java", "-Xms256m", "-Xmx384m", "-jar", "/app/app.jar"]
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production-please-very-long-secret}
+      # 真实支付宝沙箱密钥（可选，未配置则走模拟支付；&& 符号整行无特殊处理）
+      - ALIPAY_ENABLED=${ALIPAY_ENABLED:-false}
+      - ALIPAY_APP_ID=${ALIPAY_APP_ID:-}
+      - ALIPAY_APP_PRIVATE_KEY=${ALIPAY_APP_PRIVATE_KEY:-}
+      - ALIPAY_PUBLIC_KEY=${ALIPAY_PUBLIC_KEY:-}
+      - ALIPAY_RETURN_URL=${ALIPAY_RETURN_URL:-}
+      # RabbitMQ：覆盖 application-docker.yml 里的 guest/guest（容器间非 localhost，guest 会被拒）
+      - SPRING_RABBITMQ_USERNAME=eshop
+      - SPRING_RABBITMQ_PASSWORD=eshop123
+      # 关闭 Elasticsearch：无 ES 容器，搜索走 MySQL 降级（对应 application.yml 的 elasticsearch.enabled）
+      - ELASTICSEARCH_ENABLED=false
+    volumes:
+      - /opt/eshop/app/app.jar:/app/app.jar:ro
+      # 上传目录：直接挂载服务器本机文件夹，便于迁移旧图片/备份
+      - /opt/eshop/uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - eshop-net
+
+  # ---------- 前端（直接挂载本地打包好的 dist，不走源码构建；nginx 反向代理 /prod-api、/ai） ----------
+  # 服务器上需把本地打包的 dist 上传并解压到 /opt/eshop/frontend/dist，
+  # 并把前端仓库根的 nginx.conf 上传到 /opt/eshop/frontend/nginx.conf。
+  frontend:
+    image: nginx:1.27-alpine
+    container_name: eshop-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - /opt/eshop/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /opt/eshop/frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+      - ai
+    networks:
+      - eshop-net
+
+  # ---------- AI 客服（Python FastAPI） ----------
+  ai:
+    build: ./ai-customer-service
+    container_name: eshop-ai
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # 关键：容器内用后端服务名，而非 localhost（见 ai 仓库 tools.py 顶部 BACKEND_BASE）
+      - BACKEND_BASE=http://eshop-app:8080
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - MODEL_NAME=${MODEL_NAME:-qwen-turbo}
+    networks:
+      - eshop-net
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+
+networks:
+  eshop-net:
+    driver: bridge

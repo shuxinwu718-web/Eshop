@@ -62,6 +62,16 @@ public class OrderController {
         return Result.success("确认收货成功");
     }
 
+    /**
+     * 按发货单确认收货（多商家拆单时只签收指定发货单）
+     */
+    @PutMapping("/confirm-receive/shipment/{shipmentId}")
+    public Result<?> confirmReceiveShipment(@PathVariable Long shipmentId,
+                                            @CurrentUserId Long userId) {
+        orderService.confirmReceiveShipment(shipmentId, userId);
+        return Result.success("确认收货成功");
+    }
+
     @GetMapping("/page")
     public Result<Page<OrderVO>> pageQuery(OrderPageQueryDTO dto,
                                            @CurrentUserId Long userId) {

@@ -638,6 +638,47 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional
+    public void confirmReceiveShipment(Long shipmentId, Long userId) {
+        // 多商家拆单：只签收用户指定的这一张发货单，不影响同订单下其他商家的发货单
+        OrderShipment shipment = orderShipmentMapper.selectById(shipmentId);
+        if (shipment == null) {
+            throw new BusinessException("发货单不存在");
+        }
+        Order order = orderMapper.selectById(shipment.getOrderId());
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new BusinessException("订单不存在");
+        }
+        if (shipment.getDeliveryStatus() == null || shipment.getDeliveryStatus() != 1) {
+            throw new BusinessException("该发货单未发货或已签收");
+        }
+
+        // CAS 条件更新：仅 delivery_status=1 时才能签收，保证并发/重复点击幂等
+        LocalDateTime now = LocalDateTime.now();
+        int updated = orderShipmentMapper.update(null, new LambdaUpdateWrapper<OrderShipment>()
+                .eq(OrderShipment::getId, shipmentId)
+                .eq(OrderShipment::getDeliveryStatus, 1)
+                .set(OrderShipment::getDeliveryStatus, 2)
+                .set(OrderShipment::getReceivedTime, now));
+        if (updated == 0) {
+            throw new BusinessException("该发货单已签收，请勿重复操作");
+        }
+
+        // 仅当该订单下全部发货单都已签收时，才把父订单置为已完成；部分签收保持已发货(2)
+        long totalShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>().eq(OrderShipment::getOrderId, order.getId()));
+        long receivedShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>()
+                        .eq(OrderShipment::getOrderId, order.getId())
+                        .eq(OrderShipment::getDeliveryStatus, 2));
+        if (totalShipments == receivedShipments) {
+            order.setOrderStatus(3);
+            order.setFinishTime(now);
+            orderMapper.updateById(order);
+        }
+    }
+
+    @Override
     public Page<OrderVO> pageQuery(OrderPageQueryDTO dto, Long userId) {
         Page<Order> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();

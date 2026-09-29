@@ -103,37 +103,13 @@ e-shop
 
 > 注：RabbitMQ 依赖延迟消息插件，Docker Compose 已内置（启动时自动启用插件）；本地安装则需手动加载（见下方「RabbitMQ 延迟消息插件」说明）。
 
-### 方式一：Docker Compose（推荐）
+### 方式一：本地开发运行（推荐，改动调试最快）
 
-一条命令启动 MySQL + Redis + Elasticsearch + RabbitMQ + 后端应用：
+需本机装好 JDK 17、Maven、MySQL 8.0、Redis、RabbitMQ（可选，需延迟插件）。
 
-```bash
-docker compose up -d
-```
-
-- MySQL 首次启动会自动执行 `sql/` 下的初始化脚本
-- 后端使用 `application-docker.yml`，默认端口 `8080`
-- 数据库/Redis/ES/RabbitMQ 通过容器内网互通，无需额外配置
-- RabbitMQ 管理后台：<http://localhost:15672>（guest/guest）
-
-### RabbitMQ 延迟消息插件说明
-
-订单超时自动取消依赖 `rabbitmq_delayed_message_exchange` 插件：
-
-- **Docker Compose 方式**：官方 `rabbitmq:3.13-management` 镜像自带该插件文件，`docker-compose.yml` 启动命令已自动启用，无需额外下载。
-- **本地安装方式**（非 Docker）：按 RabbitMQ 版本下载对应 `rabbitmq_delayed_message_exchange-*.ez` 插件包，放入 RabbitMQ 的 `plugins` 目录后执行：
-
-```bash
-rabbitmq-plugins enable rabbitmq_delayed_message_exchange
-```
-
-未启用该插件时，订单超时取消功能不可用（其余功能不受影响）。
-
-### 方式二：本地运行
-
-1. **初始化数据库**：在 MySQL 中新建库 `eshops`，导入 `sql/eshops.sql`（全量建表 + 初始数据），再按需执行 `src/main/resources/db/` 下的增量迁移脚本（如拼团 `V20260810__create_group_buy.sql`）。
-2. **修改配置**：编辑 `src/main/resources/application-dev.yml`，确认数据库账号密码（默认 `root / 123456`）。
-3. **启动应用**：
+1. **初始化数据库**：新建库 `eshops`，导入 `sql/eshops.sql`（全量建表 + 初始数据）；如用富文本商品详情，再按需执行 `src/main/resources/db/` 下的增量迁移脚本（如 `V20260811__product_intro_version.sql`）。
+2. **改配置**：编辑 `src/main/resources/application-dev.yml`，确认数据库账号密码（默认 `localhost:3306`，`root / 123456`）。
+3. **启动应用**（默认端口 `8080`）：
 
 ```bash
 mvn spring-boot:run
@@ -141,10 +117,94 @@ mvn spring-boot:run
 
 或在 IDE 中直接运行 `EShopApplication`。
 
+4. **（可选）RabbitMQ**：本地安装 RabbitMQ 3.12+ 并启用延迟消息插件（见下），未启用时仅「订单超时取消」不可用。
+5. **配合前端**：前端本地代理已指向本机 `8080`，按前端仓库 README 起动 `pnpm dev` 即可联调。
+
 启动成功后访问：
 
 - 接口文档（Swagger）：<http://localhost:8080/swagger-ui.html>
 - OpenAPI JSON：<http://localhost:8080/v3/api-docs>
+
+### 方式二：本地 Docker Compose 一键（中间件 + 后端全容器化）
+
+无需预先安装 MySQL/Redis/ES/RabbitMQ，全部由容器承担：
+
+```bash
+docker compose up -d
+```
+
+- 使用 `docker-compose.yml`（MySQL + Redis + Elasticsearch + RabbitMQ + 后端 App）
+- MySQL 首次启动自动执行 `sql/` 下的初始化脚本
+- 后端使用 `application-docker.yml`（`eshop-mysql` / `eshop-redis` / `eshop-es` / `eshop-rabbitmq` 容器内网互通），默认端口 `8080`
+- RabbitMQ 管理后台：<http://localhost:15672>（guest/guest）
+
+### 方式三：生产服务器 Docker 一键部署（docker-compose.prod.yml）
+
+用于线上服务器，固定部署到 `/opt/eshop/`。区别于方式二：**不构建 App 镜像，直接挂载本地打好的 jar**；前端挂载 `dist` 与 `nginx.conf`；**移除 Elasticsearch**（搜索走 MySQL 降级），降低 2G 小机 CPU 占用。
+
+**① 本地打包上传产物：**
+
+```bash
+# 后端 fat jar
+mvn package -DskipTests
+#   → 上传 /opt/eshop/app/app.jar
+
+# 前端 dist（见前端仓库 README「方式二」）
+pnpm build     # 产物 dist/
+#   → dist 上传 /opt/eshop/frontend/dist/，nginx.conf 上传 /opt/eshop/frontend/
+
+# 数据与图片
+#   eshops.sql → /opt/eshop/sql/
+#   本地 e-shop/uploads 整份 → /opt/eshop/uploads/
+```
+
+**② 准备密钥文件 `/opt/eshop/.env`（至少含）：**
+
+```bash
+JWT_SECRET=<后端 JWT 密钥，务必修改>
+DASHSCOPE_API_KEY=<AI 客服通义千问密钥>
+# 如需真实支付宝沙箱支付再加：
+ALIPAY_ENABLED=true
+ALIPAY_APP_ID=...
+ALIPAY_APP_PRIVATE_KEY=...
+ALIPAY_PUBLIC_KEY=...
+ALIPAY_RETURN_URL=http://<在线域名/IP>/pay/result
+```
+
+**③ 上传 RabbitMQ 延迟插件**到 `/opt/eshop/rabbitmq/rabbitmq_delayed_message_exchange-3.12.0.ez`（对应 compose 中 rabbitmq 的挂载路径，须与 `rabbitmq:3.12-management` 匹配）。
+
+**④ 一键启动：**
+
+```bash
+cd /opt/eshop
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+**⑤ 访问与端口规范：**
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| 前端商城 | `http://<服务器IP>` | nginx :80 |
+| 后端 Swagger | `http://<服务器IP>:8080` | 仅内网 |
+| RabbitMQ 管理台 | `http://<服务器IP>:15672` | `eshop/eshop123`，仅内网 |
+| 数据库 | 容器 `eshop-mysql`（宿主端口 3307） | 仅内网 |
+
+> ⚠️ **安全红线**：生产服务器只对外开放 **80**；8080 / 15672 / 3307 / 5000 / 9200 等仅限本机或内网访问（连数据库用 SSH 隧道 / Navicat，勿开公网端口）。
+
+**存量数据库更新**：Docker 只在 MySQL **首次空卷启动**时自动导入 `sql/`；替换 SQL 文件不会重新导入，需重建库再手动导入，且会清空线上数据（有真实数据请用备份/binlog 方式）。
+
+### RabbitMQ 延迟消息插件说明
+
+订单超时自动取消依赖 `rabbitmq_delayed_message_exchange` 插件：
+
+- **Docker Compose（方式二/方式三）**：镜像已带插件文件，启动命令自动启用。注意**镜像与插件版本必须匹配**——`docker-compose.prod.yml` 用 `rabbitmq:3.12-management` + `3.12.0.ez`。
+- **本地安装（方式一）**：下载对应版本的 `.ez` 放入 RabbitMQ `plugins` 目录后执行：
+
+```bash
+rabbitmq-plugins enable rabbitmq_delayed_message_exchange
+```
+
+未启用时仅「订单超时取消」功能不可用，其余功能不受影响。
 
 ### 配置说明
 
