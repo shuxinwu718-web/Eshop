@@ -1783,6 +1783,44 @@ INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `vi
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3618, 1, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/order/admin/40', '2026-07-29 15:09:58');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3619, 1, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/order/admin/page', '2026-07-29 15:14:35');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3620, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/product/hot', '2026-07-29 15:15:09');
+
+-- ----------------------------
+-- Table structure for chat_conversation
+-- ----------------------------
+DROP TABLE IF EXISTS `chat_conversation`;
+CREATE TABLE `chat_conversation`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `user_id` bigint NOT NULL COMMENT '买家用户ID',
+  `merchant_id` bigint NOT NULL COMMENT '商家用户ID',
+  `product_id` bigint NULL DEFAULT NULL COMMENT '关联商品ID',
+  `last_message` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '最后一条消息摘要',
+  `last_sender` tinyint NULL DEFAULT NULL COMMENT '最后一条发送方 1用户 2商家',
+  `last_msg_time` datetime NULL DEFAULT NULL COMMENT '最后消息时间',
+  `user_unread` int NOT NULL DEFAULT 0 COMMENT '用户未读数',
+  `merchant_unread` int NOT NULL DEFAULT 0 COMMENT '商家未读数',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_user_merchant`(`user_id` ASC, `merchant_id` ASC) USING BTREE,
+  INDEX `idx_merchant_time`(`merchant_id` ASC, `last_msg_time` ASC) USING BTREE,
+  INDEX `idx_user_time`(`user_id` ASC, `last_msg_time` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '客服会话表' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for chat_message
+-- ----------------------------
+DROP TABLE IF EXISTS `chat_message`;
+CREATE TABLE `chat_message`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键（同时作游标分页游标）',
+  `conversation_id` bigint NOT NULL COMMENT '所属会话ID',
+  `sender_id` bigint NOT NULL COMMENT '发送者ID',
+  `sender_type` tinyint NOT NULL COMMENT '1用户 2商家',
+  `content` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '消息内容',
+  `is_read` tinyint NOT NULL DEFAULT 0 COMMENT '0未读 1已读',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_conv_id`(`conversation_id` ASC, `id` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '客服聊天消息表' ROW_FORMAT = Dynamic;
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3621, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/product/es/search', '2026-07-29 15:15:09');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3622, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/product/15', '2026-07-29 15:15:36');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (3623, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '/api/comments/product/15/all', '2026-07-29 15:15:36');

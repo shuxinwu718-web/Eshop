@@ -167,6 +167,7 @@ public class TraceFilter extends OncePerRequestFilter {
                 || uri.startsWith("/api/merchant/messages/unread-count")
                 || uri.startsWith("/api/captcha/")
                 || uri.startsWith("/api/v1/sse/")
+                || uri.startsWith("/api/v1/chat/unread-count")
                 || uri.startsWith("/api/admin/monitor/")
                 || uri.startsWith("/api/seckill/sessions");
     }
