@@ -7,12 +7,18 @@ import com.shopsphere.eshop.dto.CommentReplyDTO;
 import com.shopsphere.eshop.dto.CommentSaveDTO;
 import com.shopsphere.eshop.entity.ProductComment;
 import com.shopsphere.eshop.vo.ProductCommentVO;
+import com.shopsphere.eshop.vo.ProductCommentStatsVO;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ProductCommentService {
     // 用户发表评论
     void addComment(CommentSaveDTO dto, Long userId);
+
+    /** 查询当前用户是否已对某订单中某商品发表过评价 */
+    boolean existsUserComment(Long orderId, Long productId, Long userId);
+
     // 回复评论
     void replyComment(CommentReplyDTO dto, Long userId);
     // 删除评论（用户自己或管理员）
@@ -28,4 +34,15 @@ public interface ProductCommentService {
     Page<ProductComment> getRepliesByParentId(Long parentId, Integer pageNum, Integer pageSize);
 
     List<ProductCommentVO> getProductCommentsFlat(Long productId);
+
+    // 用户端：分页查询商品评论（带用户信息/已购标识/点赞状态，支持 全部/好评/中评/差评/有图 筛选与热度排序）
+    Page<ProductCommentVO> pageProductComments(Long productId, Integer pageNum, Integer pageSize,
+                                               Integer type, Boolean onlyImage, Integer sortBy,
+                                               Long currentUserId);
+
+    // 用户端：商品评价聚合统计（平均分/好评率/星级分布/有图数/最近晒图）
+    ProductCommentStatsVO getCommentStats(Long productId);
+
+    // 点赞/取消点赞（toggle），返回 {liked, likeCount}
+    Map<String, Object> toggleLike(Long commentId, Long userId);
 }

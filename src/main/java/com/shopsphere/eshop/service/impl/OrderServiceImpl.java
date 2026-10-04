@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +64,7 @@ public class OrderServiceImpl implements OrderService {
     private final StringRedisTemplate stringRedisTemplate;
     private final GroupBuyService groupBuyService;
     private final RabbitTemplate rabbitTemplate;
+    private final com.shopsphere.eshop.service.ShipmentTrackService shipmentTrackService;
 
     @Scheduled(cron = "0 */5 * * * ?")
     public void scheduledCancelOrders() {
@@ -676,6 +678,71 @@ public class OrderServiceImpl implements OrderService {
             order.setFinishTime(now);
             orderMapper.updateById(order);
         }
+    }
+
+    @Override
+    @Transactional
+    public void confirmReceiveInternal(Long shipmentId) {
+        // 模拟物流"已签收"节点触发的自动确认收货：跳过 userId 校验，
+        // 其余逻辑与 confirmReceiveShipment 一致（CAS 幂等 + 全部签收后订单完成）
+        OrderShipment shipment = orderShipmentMapper.selectById(shipmentId);
+        if (shipment == null) {
+            log.warn("自动确认收货：发货单不存在，shipmentId: {}", shipmentId);
+            return;
+        }
+        Order order = orderMapper.selectById(shipment.getOrderId());
+        if (order == null) {
+            log.warn("自动确认收货：订单不存在，shipmentId: {}", shipmentId);
+            return;
+        }
+        if (shipment.getDeliveryStatus() == null || shipment.getDeliveryStatus() != 1) {
+            // 已签收或未发货：跳过（幂等）
+            return;
+        }
+
+        // CAS 条件更新：仅 delivery_status=1 时才能签收
+        LocalDateTime now = LocalDateTime.now();
+        int updated = orderShipmentMapper.update(null, new LambdaUpdateWrapper<OrderShipment>()
+                .eq(OrderShipment::getId, shipmentId)
+                .eq(OrderShipment::getDeliveryStatus, 1)
+                .set(OrderShipment::getDeliveryStatus, 2)
+                .set(OrderShipment::getReceivedTime, now));
+        if (updated == 0) {
+            return;
+        }
+
+        // 全部发货单签收后才把父订单置为已完成
+        long totalShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>().eq(OrderShipment::getOrderId, order.getId()));
+        long receivedShipments = orderShipmentMapper.selectCount(
+                new LambdaQueryWrapper<OrderShipment>()
+                        .eq(OrderShipment::getOrderId, order.getId())
+                        .eq(OrderShipment::getDeliveryStatus, 2));
+        if (totalShipments == receivedShipments) {
+            order.setOrderStatus(3);
+            order.setFinishTime(now);
+            orderMapper.updateById(order);
+            log.info("模拟物流自动确认收货完成，订单: {}, 发货单: {}", order.getOrderNo(), shipmentId);
+        }
+    }
+
+    /**
+     * 监听模拟物流「已签收」事件，触发自动确认收货。
+     * 事件由 ShipmentTrackServiceImpl 发布，解耦依赖避免循环引用。
+     */
+    @EventListener
+    public void onShipmentReceived(ShipmentTrackServiceImpl.ShipmentReceivedEvent event) {
+        confirmReceiveInternal(event.getShipmentId());
+    }
+
+    @Override
+    public com.shopsphere.eshop.vo.ShipmentTrackVO getShipmentTrack(Long shipmentId, Long userId) {
+        return shipmentTrackService.getShipmentTrack(shipmentId, userId);
+    }
+
+    @Override
+    public List<com.shopsphere.eshop.vo.ShipmentTrackVO> getOrderTracks(Long orderId, Long userId) {
+        return shipmentTrackService.getOrderTracks(orderId, userId);
     }
 
     @Override

@@ -1,5 +1,77 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.shopsphere.eshop.mapper.ProductCommentMapper">
-    <!-- 继承 MyBatis-Plus BaseMapper，无需自定义 SQL -->
+
+    <!-- 分页查询商品顶层评论（带用户信息），type: 0全部 1好评(4-5) 2中评(3) 3差评(1-2)；sortBy: 0时间倒序 1热度(点赞多优先) -->
+    <select id="selectCommentPage" resultType="com.shopsphere.eshop.vo.ProductCommentVO">
+        SELECT c.*, u.nickname AS user_name, u.avatar AS user_avatar
+        FROM product_comment c
+        LEFT JOIN user u ON c.user_id = u.id
+        WHERE c.product_id = #{productId} AND c.deleted = 0 AND c.status = 1 AND c.parent_id = 0
+        <choose>
+            <when test="type != null and type == 1">
+                AND c.rating &gt;= 4
+            </when>
+            <when test="type != null and type == 2">
+                AND c.rating = 3
+            </when>
+            <when test="type != null and type == 3">
+                AND c.rating &gt;= 1 AND c.rating &lt;= 2
+            </when>
+        </choose>
+        <if test="onlyImage != null and onlyImage">
+            AND c.images IS NOT NULL AND c.images != ''
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sortBy != null and sortBy == 1">c.like_count DESC, c.create_time DESC</when>
+            <otherwise>c.create_time DESC</otherwise>
+        </choose>
+    </select>
+
+    <!-- 批量查询多条顶层评论的回复（带用户信息，按时间正序） -->
+    <select id="selectRepliesByParentIds" resultType="com.shopsphere.eshop.vo.ProductCommentVO">
+        SELECT c.*, u.nickname AS user_name, u.avatar AS user_avatar
+        FROM product_comment c
+        LEFT JOIN user u ON c.user_id = u.id
+        WHERE c.deleted = 0 AND c.status = 1 AND c.parent_id IN
+        <foreach collection="parentIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+        ORDER BY c.create_time ASC
+    </select>
+
+    <!-- 评分分布统计：rating -> 条数 -->
+    <select id="selectRatingDist" resultType="java.util.Map">
+        SELECT rating, COUNT(*) AS cnt
+        FROM product_comment
+        WHERE product_id = #{productId} AND deleted = 0 AND status = 1 AND parent_id = 0
+          AND rating IS NOT NULL AND rating &gt; 0
+        GROUP BY rating
+    </select>
+
+    <!-- 有图评论的图片JSON字段（时间倒序取前 N 条） -->
+    <select id="selectImageComments" resultType="java.lang.String">
+        SELECT images FROM product_comment
+        WHERE product_id = #{productId} AND deleted = 0 AND status = 1 AND parent_id = 0
+          AND images IS NOT NULL AND images != ''
+        ORDER BY create_time DESC LIMIT #{limit}
+    </select>
+
+    <!-- 有图评论总数 -->
+    <select id="countHasImage" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM product_comment
+        WHERE product_id = #{productId} AND deleted = 0 AND status = 1 AND parent_id = 0
+          AND images IS NOT NULL AND images != ''
+    </select>
+
+    <!-- 已购买该商品的用户ID集合（订单已付款/发货/完成，非已取消） -->
+    <select id="selectPurchasedUserIds" resultType="java.lang.Long">
+        SELECT DISTINCT o.user_id
+        FROM `order` o
+        JOIN order_item oi ON oi.order_id = o.id
+        WHERE o.user_id IN
+        <foreach collection="userIds" item="uid" open="(" separator="," close=")">#{uid}</foreach>
+          AND oi.product_id = #{productId}
+          AND o.deleted = 0
+          AND o.order_status IN (1, 2, 3)
+    </select>
 </mapper>

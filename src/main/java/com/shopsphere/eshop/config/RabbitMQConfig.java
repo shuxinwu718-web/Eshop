@@ -30,6 +30,10 @@ public class RabbitMQConfig {
     public static final String ORDER_TIMEOUT_QUEUE = "order.timeout.queue";
     public static final String ORDER_TIMEOUT_ROUTING_KEY = "order.timeout";
 
+    // ===== 🆕 模拟物流轨迹推进（复用同一延迟交换机） =====
+    public static final String LOGISTICS_TRACK_QUEUE = "logistics.track.queue";
+    public static final String LOGISTICS_TRACK_ROUTING_KEY = "logistics.track";
+
 
     // ===== 订单通知相关常量 =====
     public static final String ORDER_NOTIFY_EXCHANGE = "order.notify.exchange";
@@ -95,6 +99,17 @@ public class RabbitMQConfig {
     @Bean
     public Binding orderTimeoutBinding(Queue orderTimeoutQueue, CustomExchange delayedExchange) {
         return BindingBuilder.bind(orderTimeoutQueue).to(delayedExchange).with(ORDER_TIMEOUT_ROUTING_KEY).noargs();
+    }
+
+    // ===== 🆕 模拟物流轨迹队列（绑定到同一延迟交换机） =====
+    @Bean
+    public Queue logisticsTrackQueue() {
+        return new Queue(LOGISTICS_TRACK_QUEUE, true);
+    }
+
+    @Bean
+    public Binding logisticsTrackBinding(Queue logisticsTrackQueue, CustomExchange delayedExchange) {
+        return BindingBuilder.bind(logisticsTrackQueue).to(delayedExchange).with(LOGISTICS_TRACK_ROUTING_KEY).noargs();
     }
 
     // ===== 订单通知相关 Bean =====

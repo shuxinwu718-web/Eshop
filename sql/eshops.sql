@@ -2926,6 +2926,33 @@ INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `vi
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4723, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/product/history', '2026-08-11 15:24:40');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4724, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/product/16/images', '2026-08-11 15:24:40');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4725, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/comments/product/16/all', '2026-08-11 15:24:40');
+
+-- ============================================================
+-- 模拟物流轨迹表（V20261002）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `shipment_track` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `shipment_id` BIGINT NOT NULL COMMENT '发货单ID（order_shipment.id）',
+  `order_id` BIGINT NOT NULL COMMENT '冗余订单ID，便于按订单查询',
+  `track_status` TINYINT NOT NULL COMMENT '轨迹状态：1已揽收 2运输中 3派送中 4已签收',
+  `title` VARCHAR(100) NOT NULL COMMENT '节点标题，如「包裹已揽收」',
+  `description` VARCHAR(255) DEFAULT NULL COMMENT '节点详情，如运输中转描述',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '轨迹时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_shipment_status` (`shipment_id`, `track_status`),
+  KEY `idx_order` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物流轨迹表（模拟）';
+
+CREATE TABLE IF NOT EXISTS `comment_like` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `comment_id` BIGINT NOT NULL COMMENT '评论ID',
+  `user_id` BIGINT NOT NULL COMMENT '点赞用户ID',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '点赞时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_comment_user` (`comment_id`, `user_id`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评论点赞表';
+
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4726, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/product/16', '2026-08-11 15:24:40');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4727, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/product/merchant/5', '2026-08-11 15:24:42');
 INSERT INTO `visit_log` (`id`, `user_id`, `ip`, `user_agent`, `request_uri`, `visit_time`) VALUES (4728, 5, '0:0:0:0:0:0:0:1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '/api/product/history', '2026-08-11 15:24:46');

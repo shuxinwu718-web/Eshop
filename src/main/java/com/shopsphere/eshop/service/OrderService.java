@@ -33,6 +33,22 @@ void updatePayMethod(Long orderId, Long userId, Integer payMethod);
      */
     void confirmReceiveShipment(Long shipmentId, Long userId);
 
+    /**
+     * 内部确认收货（模拟物流"已签收"节点触发自动签收用，跳过 userId 校验）。
+     * 复用 confirmReceiveShipment 的 CAS 幂等 + 全签收→订单完成 逻辑。
+     */
+    void confirmReceiveInternal(Long shipmentId);
+
+    /**
+     * 用户查询单个发货单的物流轨迹（模拟物流，校验订单归属）
+     */
+    com.shopsphere.eshop.vo.ShipmentTrackVO getShipmentTrack(Long shipmentId, Long userId);
+
+    /**
+     * 用户查询某订单下所有发货单的物流轨迹组（模拟物流，校验订单归属）
+     */
+    List<com.shopsphere.eshop.vo.ShipmentTrackVO> getOrderTracks(Long orderId, Long userId);
+
     // ========== 退款相关 ==========
 
     /**

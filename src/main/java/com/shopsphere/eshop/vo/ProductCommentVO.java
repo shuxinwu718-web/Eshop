@@ -21,4 +21,8 @@ public class ProductCommentVO {
     private LocalDateTime createTime;
     // 前端组装子评论用
     private List<ProductCommentVO> children;  // 非数据库字段，用于前端树形结构
+
+    private Boolean purchased;      // 评论人是否已购买该商品（非数据库字段）
+    private Boolean liked;          // 当前登录用户是否已点赞（非数据库字段）
+    private Boolean merchantReply;  // 子评论是否为商家回复（非数据库字段）
 }

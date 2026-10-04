@@ -9,20 +9,24 @@ import com.shopsphere.eshop.exception.BusinessException;
 import com.shopsphere.eshop.mapper.OrderMapper;
 import com.shopsphere.eshop.mapper.OrderShipmentMapper;
 import com.shopsphere.eshop.service.OrderShipmentService;
+import com.shopsphere.eshop.service.ShipmentTrackService;
 import com.shopsphere.eshop.vo.MerchantShipmentVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderShipmentServiceImpl implements OrderShipmentService {
 
     private final OrderShipmentMapper orderShipmentMapper;
     private final OrderMapper orderMapper;
+    private final ShipmentTrackService shipmentTrackService;
 
     @Override
     public Page<MerchantShipmentVO> getMerchantShipments(Long sellerId, Integer pageNum, Integer pageSize) {
@@ -68,6 +72,14 @@ public class OrderShipmentServiceImpl implements OrderShipmentService {
                     .eq(Order::getId, shipment.getOrderId())
                     .eq(Order::getOrderStatus, 1)
                     .set(Order::getOrderStatus, 2));
+
+            // 模拟物流：发货成功即生成首条轨迹（已揽收）并投递推进延迟消息
+            try {
+                shipmentTrackService.initFirstTrack(shipment);
+            } catch (Exception e) {
+                // 轨迹初始化失败不影响发货主流程，启动兜底会补投
+                log.error("模拟物流轨迹初始化失败，shipmentId: {}", shipmentId, e);
+            }
         }
     }
 }

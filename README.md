@@ -59,7 +59,7 @@ e-shop
 
 ## 功能模块
 
-- **用户端**：注册登录、JWT 认证、收货地址、商品浏览与搜索（ES/MySQL 双引擎）、购物车、下单支付、订单管理、收藏、优惠券领取、退款售后、签到活动、拼团、秒杀、AI 客服
+- **用户端**：注册登录、JWT 认证、收货地址、商品浏览与搜索（ES/MySQL 双引擎）、购物车、下单支付、订单管理、**模拟物流跟踪**、收藏、优惠券领取、退款售后、签到活动、拼团、秒杀、AI 客服
 - **商家端**：店铺入驻申请、商品管理（SKU/规格/尺码表）、订单处理、退款审核、拼团活动管理、经营统计、消息通知
 - **管理端**：用户/商品/订单/优惠券管理、秒杀场次管理、商家审核、运营统计、系统日志、访问统计
 
@@ -69,6 +69,7 @@ e-shop
 - **支付成功异步处理**：支付/退款成功发布消息，异步扣减库存、追加销量（`StockConsumer` / `OrderPaidConsumer`）
 - **邮件异步发送**：邮箱验证码、找回密码等邮件投递不阻塞主线程（`EmailConsumer`）
 - **订单通知**：下单/支付后异步生成站内通知（`OrderNotifyConsumer`）
+- **模拟物流轨迹推进**：发货后由延迟消息逐级生成「已揽收→运输中→派送中→已签收」轨迹并自动确认收货（`LogisticsTrackConsumer`，复用延迟交换机，`simulation.logistics.*` 可配推进间隔）
 - **访问日志异步落库**：`TraceFilter` 对每个请求发送访问日志消息（`VisitLogConsumer`），落库零阻塞
 
 > 注：各消费者均为手动 ACK 模式，处理失败可重新入队，保证不丢消息。
@@ -107,7 +108,7 @@ e-shop
 
 需本机装好 JDK 17、Maven、MySQL 8.0、Redis、RabbitMQ（可选，需延迟插件）。
 
-1. **初始化数据库**：新建库 `eshops`，导入 `sql/eshops.sql`（全量建表 + 初始数据）；如用富文本商品详情，再按需执行 `src/main/resources/db/` 下的增量迁移脚本（如 `V20260811__product_intro_version.sql`）。
+1. **初始化数据库**：新建库 `eshops`，导入 `sql/eshops.sql`（全量建表 + 初始数据）；再按需执行 `src/main/resources/db/` 下的增量迁移脚本（如 `V20260811__product_intro_version.sql`、`V20261002__create_shipment_track.sql` 模拟物流轨迹表）。
 2. **改配置**：编辑 `src/main/resources/application-dev.yml`，确认数据库账号密码（默认 `localhost:3306`，`root / 123456`）。
 3. **启动应用**（默认端口 `8080`）：
 
@@ -191,7 +192,12 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 > ⚠️ **安全红线**：生产服务器只对外开放 **80**；8080 / 15672 / 3307 / 5000 / 9200 等仅限本机或内网访问（连数据库用 SSH 隧道 / Navicat，勿开公网端口）。
 
-**存量数据库更新**：Docker 只在 MySQL **首次空卷启动**时自动导入 `sql/`；替换 SQL 文件不会重新导入，需重建库再手动导入，且会清空线上数据（有真实数据请用备份/binlog 方式）。
+**存量数据库更新**：Docker 只在 MySQL **首次空卷启动**时自动导入 `sql/`；替换 SQL 文件不会重新导入，需重建库再手动导入，且会清空线上数据（有真实数据请用备份/binlog 方式）。增量迁移脚本可在容器内手动执行（将 SQL 复制进容器后导入，或直接 `docker exec` 指定路径）：
+
+```bash
+# 模拟物流轨迹表（物流模块必须执行）
+docker exec -i eshop-mysql mysql -uroot -p123456 eshops < src/main/resources/db/V20261002__create_shipment_track.sql
+```
 
 ### RabbitMQ 延迟消息插件说明
 

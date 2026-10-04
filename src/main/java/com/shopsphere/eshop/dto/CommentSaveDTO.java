@@ -17,4 +17,6 @@ public class CommentSaveDTO {
     @Length(max = 1000)
     private String content;
     private List<String> images; // 前端上传图片后传递URL列表
+    /** 订单ID（从订单页评价入口传入，用于评价-订单关联校验） */
+    private Long orderId;
 }

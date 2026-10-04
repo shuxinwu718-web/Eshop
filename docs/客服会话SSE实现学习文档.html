@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>客服会话模块 · SSE 长连接实现学习文档（架构 + 代码）</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #F7F7F8;
+  --surface-muted: #EFEFF2;
+  --surface-code: #FBFBFC;
+  --text: #171717;
+  --text-muted: #52525B;
+  --border: rgba(23, 23, 23, 0.12);
+  --brand: #0FDC78;
+  --brand-soft: #E5FFF2;
+  --brand-text: #004D26;
+  --warn-soft: #FFF6E5;
+  --warn-text: #8A5A00;
+  --warn-border: #E8B84B;
+  --danger-soft: #FFEBEE;
+  --danger-text: #B3261E;
+  --radius: 8px;
+  --radius-card: 12px;
+  --radius-full: 999px;
+  --spacer-4: 4px;
+  --spacer-8: 8px;
+  --spacer-12: 12px;
+  --spacer-16: 16px;
+  --spacer-20: 20px;
+  --spacer-24: 24px;
+  --spacer-32: 32px;
+  --font-sans: "SF Pro Text", "PingFang SC", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --text-caption: 12px/18px;
+  --text-body: 14px/22px;
+  --text-title: 16px/24px;
+  --text-code: 13px/20px;
+}
+:root[data-doc-theme="dark"] {
+  color-scheme: dark;
+  --surface: #171717;
+  --surface-muted: #262626;
+  --surface-code: #1E1E1E;
+  --text: #E5E5E5;
+  --text-muted: #A1A1AA;
+  --border: rgba(229, 229, 229, 0.14);
+  --brand: #32F08C;
+  --brand-soft: #004D26;
+  --brand-text: #9CF5C6;
+  --warn-soft: #3A2E10;
+  --warn-text: #F5C86B;
+  --warn-border: #8A6D1F;
+  --danger-soft: #3A1512;
+  --danger-text: #F2A9A4;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: var(--weight-regular) var(--text-body) var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page { max-width: 1060px; margin: 0 auto; padding: var(--spacer-32) var(--spacer-20) 96px; }
+
+/* ---------- 页头 ---------- */
+.docHeader {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacer-16);
+  padding: var(--spacer-24);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+}
+.docHeaderMain { display: grid; gap: var(--spacer-8); min-width: 0; }
+.docTitle { margin: 0; font: var(--weight-medium) 22px/32px var(--font-sans); letter-spacing: -0.01em; }
+.docSub { margin: 0; color: var(--text-muted); }
+.docMeta { margin: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+
+.themeToggle {
+  flex: 0 0 auto; min-height: 36px; padding: 0 var(--spacer-16);
+  color: var(--text); background: var(--surface-muted);
+  border: 1px solid var(--border); border-radius: var(--radius-full);
+  cursor: pointer; font: var(--weight-medium) var(--text-caption) var(--font-sans);
+}
+.themeToggle:hover { border-color: var(--brand); color: var(--brand-text); }
+
+/* ---------- 目录 ---------- */
+.toc {
+  margin-top: var(--spacer-20); padding: var(--spacer-20);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+}
+.tocTitle { margin: 0 0 var(--spacer-12); font: var(--weight-medium) var(--text-title) var(--font-sans); }
+.tocList { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacer-8) var(--spacer-24); margin: 0; padding: 0; list-style: none; }
+.tocList a { color: var(--text); text-decoration: none; }
+.tocList a:hover { color: var(--brand-text); }
+.tocNum {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-right: var(--spacer-8);
+  color: var(--text-muted); background: var(--surface-muted);
+  border: 1px solid var(--border); border-radius: var(--radius-full);
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 章节 ---------- */
+.section {
+  margin-top: var(--spacer-32); padding: var(--spacer-24);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+}
+.sectionKicker { color: var(--text-muted); font: var(--weight-medium) var(--text-caption) var(--font-sans); letter-spacing: .08em; text-transform: uppercase; }
+.sectionTitle { margin: 0 0 var(--spacer-8); font: var(--weight-medium) 18px/28px var(--font-sans); }
+.sectionLead { margin: 0 0 var(--spacer-12); color: var(--text-muted); }
+
+h3.blockTitle { margin: var(--spacer-24) 0 var(--spacer-8); font: var(--weight-medium) var(--text-title) var(--font-sans); }
+h4.miniTitle { margin: var(--spacer-16) 0 var(--spacer-8); font: var(--weight-medium) 14px/22px var(--font-sans); }
+p { margin: 0 0 var(--spacer-12); }
+p:last-child { margin-bottom: 0; }
+ul, ol { margin: 0 0 var(--spacer-12); padding-left: 1.35em; }
+li { margin-bottom: var(--spacer-4); }
+li:last-child { margin-bottom: 0; }
+strong { font-weight: var(--weight-strong); }
+code {
+  padding: 1px 5px; color: var(--brand-text); background: var(--surface-muted);
+  border: 1px solid var(--border); border-radius: 6px;
+  font: var(--weight-medium) var(--text-code) var(--font-mono);
+}
+
+.note {
+  margin-top: var(--spacer-16); padding: var(--spacer-12) var(--spacer-16);
+  color: var(--text-muted); background: var(--surface-muted);
+  border-left: 3px solid var(--brand); border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+.callout {
+  margin-top: var(--spacer-16); padding: var(--spacer-12) var(--spacer-16);
+  background: var(--warn-soft); border-left: 3px solid var(--warn-border); border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+.callout b, .callout strong { color: var(--warn-text); }
+.dangerBox {
+  margin-top: var(--spacer-16); padding: var(--spacer-12) var(--spacer-16);
+  background: var(--danger-soft); border-left: 3px solid var(--danger-text); border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+.dangerBox b, .dangerBox strong { color: var(--danger-text); }
+
+/* ---------- 代码块 ---------- */
+.codeWrap { margin: var(--spacer-12) 0 var(--spacer-16); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.codeHead {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12);
+  background: var(--surface-muted); border-bottom: 1px solid var(--border);
+  font: var(--weight-medium) var(--text-caption) var(--font-mono);
+}
+.codeHead .lang { color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+pre.codeBlock {
+  margin: 0; padding: var(--spacer-12) var(--spacer-16);
+  background: var(--surface-code); overflow-x: auto;
+  font: var(--weight-regular) var(--text-code) var(--font-mono);
+  line-height: 1.55;
+}
+pre.codeBlock code { padding: 0; background: none; border: none; font: inherit; color: var(--text); }
+.cmt { color: var(--text-muted); }
+.tag { color: var(--brand-text); font-weight: var(--weight-strong); }
+.hl { background: var(--brand-soft); border-radius: 4px; padding: 0 3px; }
+
+/* ---------- 表格 ---------- */
+.tbl { width: 100%; border-collapse: collapse; margin: var(--spacer-12) 0 var(--spacer-16); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+.tbl th, .tbl td { text-align: left; padding: var(--spacer-8) var(--spacer-12); border: 1px solid var(--border); vertical-align: top; }
+.tbl th { background: var(--surface-muted); font-weight: var(--weight-strong); }
+.tbl td code { white-space: nowrap; }
+
+/* ---------- 图示 ---------- */
+.figure { margin: var(--spacer-16) 0; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); overflow-x: auto; }
+.figure svg { display: block; width: 100%; height: auto; }
+.figCap { padding: var(--spacer-8) var(--spacer-16); color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); border-top: 1px solid var(--border); }
+
+/* ---------- 步骤卡 ---------- */
+.stepList { counter-reset: step; display: grid; gap: var(--spacer-12); margin: var(--spacer-12) 0; padding: 0; list-style: none; }
+.stepList li {
+  counter-increment: step; position: relative;
+  padding: var(--spacer-12) var(--spacer-16) var(--spacer-12) 52px;
+  background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.stepList li::before {
+  content: counter(step);
+  position: absolute; left: 16px; top: 14px;
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--radius-full);
+  background: var(--brand-soft); color: var(--brand-text);
+  font: var(--weight-strong) 13px/24px var(--font-sans);
+}
+.checklist { list-style: none; padding-left: 0; }
+.checklist li { padding-left: 26px; position: relative; }
+.checklist li::before { content: "✓"; position: absolute; left: 0; color: var(--brand-text); font-weight: var(--weight-strong); }
+
+@media (max-width: 760px) {
+  .tocList { grid-template-columns: 1fr; }
+  .docHeader { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ================= 页头 ================= -->
+<header class="docHeader">
+  <div class="docHeaderMain">
+    <h1 class="docTitle">客服会话模块 · SSE 长连接实现学习文档</h1>
+    <p class="docSub">架构原理 + 代码逐行精讲，全部基于 e-shop 项目真实源码。读完即可动手改造。</p>
+    <p class="docMeta">后端仓库 Desktop\e-shop · 前端仓库 Desktop\项目\电商系统\Eshop · 2026-09-29</p>
+  </div>
+  <button class="themeToggle" id="themeToggle" type="button">浅色 / 深色</button>
+</header>
+
+<!-- ================= 目录 ================= -->
+<nav class="toc" aria-label="目录">
+  <h2 class="tocTitle">目录</h2>
+  <ul class="tocList">
+    <li><a href="#s0"><span class="tocNum">0</span>怎么用这份文档</a></li>
+    <li><a href="#s1"><span class="tocNum">1</span>SSE 协议原理（HTTP 层发生了什么）</a></li>
+    <li><a href="#s2"><span class="tocNum">2</span>后端：SseEmitter 与现有 SseController 逐行解析</a></li>
+    <li><a href="#s3"><span class="tocNum">3</span>前端：useSse.ts 逐行解析与两个断点</a></li>
+    <li><a href="#s4"><span class="tocNum">4</span>鉴权链路：token、@CurrentUserId、归属校验</a></li>
+    <li><a href="#s5"><span class="tocNum">5</span>数据模型：会话表设计与迁移脚本规范</a></li>
+    <li><a href="#s6"><span class="tocNum">6</span>改造蓝图：一条消息的完整旅程</a></li>
+    <li><a href="#s7"><span class="tocNum">7</span>动手实验清单（按步骤做）</a></li>
+    <li><a href="#s8"><span class="tocNum">8</span>常见坑速查表</a></li>
+  </ul>
+</nav>
+
+<!-- ================= 0 ================= -->
+<section class="section" id="s0">
+  <p class="sectionKicker">Chapter 0</p>
+  <h2 class="sectionTitle">怎么用这份文档</h2>
+  <p class="sectionLead">本文是《客服会话实时推送方案选型》的续篇：选型已定为 SSE，这份文档负责把「为什么 + 怎么改」落到每一行代码。</p>
+  <ul class="checklist">
+    <li><strong>第 1 章</strong>：搞懂协议本身——一条 SSE 连接在 HTTP 层长什么样，EventSource 如何自动重连。这是纯原理，不看项目代码也能懂。</li>
+    <li><strong>第 2、3 章</strong>：逐行读项目里<strong>已经存在</strong>的后端 SseController 和前端 useSse.ts，顺便发现两处「接线断了」的问题。</li>
+    <li><strong>第 4 章</strong>：SSE 特殊的鉴权方式（token 放 URL），以及商家数据归属校验的项目范式。</li>
+    <li><strong>第 5、6 章</strong>：要新建的表、要改的文件、一条消息从用户 A 到用户 B 的完整旅程。</li>
+    <li><strong>第 7 章</strong>：6 个动手步骤，每步带验证方法。你确认后，我们就按这个顺序改代码。</li>
+  </ul>
+  <div class="note">文中所有代码片段均来自项目真实文件（已标注路径行号），标注「<strong>目标代码</strong>」的片段是改造设计稿，实施时以此为准。</div>
+</section>
+
+<!-- ================= 1 ================= -->
+<section class="section" id="s1">
+  <p class="sectionKicker">Chapter 1 · 架构层</p>
+  <h2 class="sectionTitle">SSE 协议原理：HTTP 层发生了什么</h2>
+  <p class="sectionLead">SSE 没有任何魔法——它就是一个「永远不返回结束」的普通 HTTP 响应，服务端往里不断追加文本。</p>
+
+  <h3 class="blockTitle">1.1 一次握手，无限响应</h3>
+  <p>浏览器发一个普通 GET 请求，服务端返回特定响应头后<strong>不关连接</strong>，之后随时往响应体里写数据：</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, Consolas, monospace" font-size="13">
+      <rect x="40" y="30" width="150" height="44" rx="8" fill="#EFEFF2" stroke="#17171722"/>
+      <text x="115" y="56" text-anchor="middle" fill="#171717" font-weight="600">浏览器</text>
+      <rect x="770" y="30" width="150" height="44" rx="8" fill="#E5FFF2" stroke="#0FDC7866"/>
+      <text x="845" y="56" text-anchor="middle" fill="#004D26" font-weight="600">Spring Boot</text>
+      <!-- request -->
+      <line x1="190" y1="95" x2="770" y2="95" stroke="#52525B" stroke-width="1.5" marker-end="url(#arr1)"/>
+      <text x="480" y="86" text-anchor="middle" fill="#52525B">① GET /api/v1/sse/connect?token=xxx</text>
+      <text x="480" y="110" text-anchor="middle" fill="#52525B" font-size="11">Accept: text/event-stream</text>
+      <!-- response headers -->
+      <line x1="770" y1="140" x2="190" y2="140" stroke="#0FDC78" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <text x="480" y="131" text-anchor="middle" fill="#004D26" font-weight="600">② 响应头（此时连接保持打开）</text>
+      <text x="480" y="155" text-anchor="middle" fill="#52525B" font-size="11">Content-Type: text/event-stream; Cache-Control: no-cache</text>
+      <!-- push -->
+      <line x1="770" y1="195" x2="190" y2="195" stroke="#0FDC78" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+      <text x="480" y="186" text-anchor="middle" fill="#004D26">③ 事件1：event: online-count / data: 42</text>
+      <line x1="770" y1="240" x2="190" y2="240" stroke="#0FDC78" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+      <text x="480" y="231" text-anchor="middle" fill="#004D26">④ 事件2：event: im-message / data: {...}</text>
+      <line x1="770" y1="285" x2="190" y2="285" stroke="#0FDC78" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr2)"/>
+      <text x="480" y="276" text-anchor="middle" fill="#004D26">⑤ ……连接一直开着，服务端想推就推</text>
+      <defs>
+        <marker id="arr1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52525B"/></marker>
+        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#0FDC78"/></marker>
+      </defs>
+    </svg>
+    <div class="figCap">图 1 · SSE = 一个不结束的 HTTP 响应。①② 只发生一次，③④⑤ 由服务端按需推送。</div>
+  </div>
+
+  <h3 class="blockTitle">1.2 报文格式：只有 4 个字段</h3>
+  <p>响应体里每条消息就是一段纯文本，<strong>空行表示一条消息结束</strong>。字段全部以 <code>key: value</code> 形式书写：</p>
+
+  <div class="codeWrap">
+    <div class="codeHead"><span>一条完整的 SSE 消息（协议原文）</span><span class="lang">text/event-stream</span></div>
+    <pre class="codeBlock"><code><span class="cmt"># event：事件类型。省略时默认为 message（前端 onmessage 才能收到）</span>
+event: im-message
+<span class="cmt"># data：消息内容，前端拿到的 event.data 就是它（一般放 JSON 字符串）</span>
+data: {"msgId":1001,"content":"您好，在的","senderId":2}
+<span class="cmt"># id：消息编号。断线重连时浏览器自动带上 Last-Event-ID 头，可用于补发</span>
+id: 1001
+<span class="cmt"># retry：告诉浏览器断线后隔多少毫秒重连</span>
+retry: 3000
+<span class="cmt"># ← 这里必须是空行，代表消息结束，浏览器此时才触发监听器</span></code></pre>
+  </div>
+
+  <table class="tbl">
+    <thead><tr><th>字段</th><th>作用</th><th>不写会怎样</th></tr></thead>
+    <tbody>
+      <tr><td><code>data</code></td><td>消息本体，唯一必需字段</td><td>消息无效</td></tr>
+      <tr><td><code>event</code></td><td>事件类型，前端按名监听</td><td>归入默认 <code>message</code> 事件</td></tr>
+      <tr><td><code>id</code></td><td>断线重连续传的游标</td><td>重连后从最新开始，不补发</td></tr>
+      <tr><td><code>retry</code></td><td>自动重连间隔(ms)</td><td>浏览器用默认值（约 3 秒）</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="blockTitle">1.3 浏览器 EventSource 的三个关键行为</h3>
+  <ol>
+    <li><strong>自动重连</strong>：连接断了（网络抖动、服务重启），浏览器<strong>自动</strong>按 <code>retry</code> 间隔重连，前端几乎不用写重连逻辑。这是 SSE 相对 WebSocket 最大的省心点。</li>
+    <li><strong>只能 GET、不能自定义 Header</strong>：<code>new EventSource(url)</code> 不支持设置 <code>Authorization</code> 头 → 所以本项目把 JWT 放在 URL 的 <code>?token=</code> 里（第 4 章详述）。</li>
+    <li><strong>同源/跨域受 CORS 约束</strong>：本项目前端走 Nginx 同源反代（<code>/prod-api</code> 前缀），不存在跨域问题。</li>
+  </ol>
+
+  <h3 class="blockTitle">1.4 半双工：发消息为什么仍走普通 POST</h3>
+  <p>SSE 通道是<strong>单向</strong>的（仅服务端→客户端）。用户 A 给 B 发消息时，前端走的仍是普通 REST 请求：</p>
+  <div class="codeWrap">
+    <div class="codeHead"><span>发消息 vs 收消息，走两条不同的路</span><span class="lang">设计约定</span></div>
+    <pre class="codeBlock"><code>发消息（上行）：<span class="hl">POST /api/v1/chat/messages</span>   ← 普通 REST，带 Authorization 头，Spring Security 正常鉴权
+收消息（下行）：<span class="hl">GET  /api/v1/sse/connect</span>      ← SSE 长连接，token 在 URL，事件名 im-message 推给你</code></pre>
+  </div>
+  <div class="note">这与项目现有惯例完全一致：现有 SSE 也只负责下行（广播 online-count），所有普通业务都是 REST。WebSocket 方案里上行也要走帧通道，那才是它的复杂度来源之一。</div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="section" id="s2">
+  <p class="sectionKicker">Chapter 2 · 后端代码层</p>
+  <h2 class="sectionTitle">SseEmitter 与现有 SseController 逐行解析</h2>
+  <p class="sectionLead">文件：<code>src/main/java/com/shopsphere/eshop/controller/SseController.java</code>（全文 108 行，本项目唯一的 SSE 实现）。</p>
+
+  <h3 class="blockTitle">2.1 SseEmitter 是什么</h3>
+  <p><code>SseEmitter</code> 是 Spring MVC 对 <strong>Servlet 3.0 异步响应</strong>的封装。Controller 方法直接 <code>return emitter</code>，Spring 会：</p>
+  <ol>
+    <li>立刻<strong>释放 Tomcat 工作线程</strong>（线程回池子继续服务别的请求，这就是长连接不吃并发线程数的原因）；</li>
+    <li>保持 HTTP 连接和响应流打开；</li>
+    <li>之后任何线程调用 <code>emitter.send(...)</code> 都会往这条响应流写一条 SSE 消息。</li>
+  </ol>
+  <div class="callout"><b>为什么 2C2G 扛得住</b>：每条 SSE 连接 ≈ 1 个 socket + 少量内存，不占工作线程。几百条在线连接的内存开销可忽略，这正是选型文档判断「2 核 2G 可用」的依据。</div>
+
+  <h3 class="blockTitle">2.2 成员变量：连接注册表</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>SseController.java · L34-35</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code><span class="cmt">// 连接注册表：key = "userId_时间戳"，value = 这条连接的 emitter</span>
+private final Map&lt;String, SseEmitter&gt; emitters = new ConcurrentHashMap&lt;&gt;();
+<span class="cmt">// 单线程调度器：负责每 5 秒广播在线人数（等效心跳）</span>
+private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();</code></pre>
+  </div>
+  <ul>
+    <li><code>ConcurrentHashMap</code>：SSE 回调（onTimeout/onError）和心跳线程在不同线程里增删 map，必须线程安全。</li>
+    <li><strong>局限</strong>：key 是「用户id_时间戳」，值只有单个 emitter——想「给某个用户推消息」时，得遍历全 map 解析 key 前缀，且一个用户开 3 个 Tab 就有 3 条散落记录。改造目标是 <code>Map&lt;Long, Set&lt;SseEmitter&gt;&gt;</code>（见 6.2）。</li>
+  </ul>
+
+  <h3 class="blockTitle">2.3 connect()：建立连接的完整流程</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>SseController.java · L37-89（节选，含行号）</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>@GetMapping(value = "/connect", produces = MediaType.TEXT_EVENT_STREAM_VALUE)  <span class="cmt">// ① 声明响应类型</span>
+public SseEmitter connect(@RequestParam String token, <span class="hl">@CurrentUserId Long userId</span>) {  <span class="cmt">// ② 双通道鉴权</span>
+    String username;
+    try {
+        username = jwtUtil.getUsernameFromToken(token);   <span class="cmt">// ③ 手动再验一次 URL 里的 token</span>
+    } catch (Exception e) {
+        <span class="cmt">// token 无效：造一个立即关闭的 emitter，浏览器收到 error 事件后不再重连（complete 了）</span>
+        SseEmitter errorEmitter = new SseEmitter(0L);
+        errorEmitter.send(SseEmitter.event().name("error").data("Token验证失败: " + e.getMessage()));
+        errorEmitter.complete();
+        return errorEmitter;
+    }
+    onlineUserService.updateHeartbeat(userId, username);  <span class="cmt">// ④ 记录在线状态（管理端看在线人数用）</span>
+
+    SseEmitter emitter = new SseEmitter(3600000L);        <span class="cmt">// ⑤ 超时 1 小时，到点触发 onTimeout</span>
+    String emitterId = userId + "_" + System.currentTimeMillis();  <span class="cmt">// ⑥ 唯一键</span>
+    emitters.put(emitterId, emitter);
+
+    emitter.send(SseEmitter.event()                       <span class="cmt">// ⑦ 立刻推一条初始数据</span>
+            .name("online-count")
+            .data(String.valueOf(onlineUserService.getOnlineCount())));
+
+    emitter.onCompletion(() -&gt; emitters.remove(emitterId));  <span class="cmt">// ⑧ 三个生命周期回调：</span>
+    emitter.onTimeout(()   -&gt; emitters.remove(emitterId));  <span class="cmt">//    正常关闭 / 超时 / IO错误</span>
+    emitter.onError(e      -&gt; emitters.remove(emitterId));  <span class="cmt">//    任一触发都要从 map 移除，防泄漏</span>
+    return emitter;                                        <span class="cmt">// ⑨ 交回 Spring，线程立即释放</span>
+}</code></pre>
+  </div>
+  <p><strong>三个必须理解的设计点：</strong></p>
+  <ol>
+    <li><code>produces = TEXT_EVENT_STREAM_VALUE</code>：让 Spring 写出 <code>Content-Type: text/event-stream</code>，浏览器 EventSource 才认。</li>
+    <li><strong>鉴权是「双保险」</strong>：SecurityConfig 把 <code>/api/v1/sse/**</code> 放进了 permitAll（因为 EventSource 带不了 Header，见第 4 章），所以这个方法<strong>必须自己校验 token</strong>；参数里的 <code>userId</code> 由参数解析器从 Authorization 头解析（页面正常登录时有），token 则来自 URL query（EventSource 用）。</li>
+    <li><strong>回调即善后</strong>：连接断开的三种方式（正常关/超时/出错）都必须把 emitter 从 map 移除。漏写 = map 里堆死连接 = 每次广播都在对空气 send + 抛 IOException。</li>
+  </ol>
+
+  <h3 class="blockTitle">2.4 init()：每 5 秒的心跳广播线程</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>SseController.java · L91-107</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>@PostConstruct   <span class="cmt">// Bean 创建完成后执行一次，启动广播任务</span>
+public void init() {
+    scheduler.scheduleAtFixedRate(() -&gt; {
+        int count = onlineUserService.getOnlineCount();
+        emitters.entrySet().removeIf(entry -&gt; {       <span class="cmt">// 遍历所有连接</span>
+            try {
+                entry.getValue().send(SseEmitter.event()
+                        .name("online-count")
+                        .data(String.valueOf(count)));
+                return false;                          <span class="cmt">// 发送成功：保留</span>
+            } catch (IOException e) {
+                return true;                           <span class="cmt">// 发送失败 = 连接已断：顺手移除</span>
+            }
+        });
+    }, 5, 5, TimeUnit.SECONDS);                        <span class="cmt">// 首次延迟 5s，之后每 5s 一次</span>
+}</code></pre>
+  </div>
+  <p>这段代码身兼两职：</p>
+  <ul>
+    <li><strong>业务</strong>：管理端在线人数实时刷新；</li>
+    <li><strong>心跳</strong>：每 5 秒必有一次数据流动，防止 Nginx / 防火墙把「长时间静默」的连接当死连接掐掉。<strong>改造后必须保留这个心跳职责</strong>（或改为专用的 <code>event: ping</code>）。</li>
+  </ul>
+  <div class="dangerBox"><b>线程模型提醒</b>：所有 emitter.send() 都可能被多个线程（心跳线程 + 业务推送线程）并发调用。Spring 的 SseEmitter.send 本身做了同步保护，但「遍历 + 移除」必须像上面一样用 removeIf 或 ConcurrentHashMap 的安全操作，不能用普通 for + remove。</div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section class="section" id="s3">
+  <p class="sectionKicker">Chapter 3 · 前端代码层</p>
+  <h2 class="sectionTitle">useSse.ts 逐行解析与两个断点</h2>
+  <p class="sectionLead">文件：<code>前端仓库 src/composables/sse/useSse.ts</code>（全文 269 行，原生 EventSource 的单例封装）。</p>
+
+  <h3 class="blockTitle">3.1 单例模式：全站只有一条 SSE 连接</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>useSse.ts · L26 + L247-252</span><span class="lang">TypeScript</span></div>
+    <pre class="codeBlock"><code><span class="cmt">// 模块级变量：整个应用生命周期的唯一实例</span>
+let globalInstance: ReturnType&lt;typeof createSseConnection&gt; | null = null;
+
+export function useSse(options: UseSseOptions = {}) {
+  if (!globalInstance) {
+    globalInstance = createSseConnection(options);   <span class="cmt">// 第一次调用才创建</span>
+  }
+  return globalInstance;                             <span class="cmt">// 之后所有调用者共享同一实例</span>
+}</code></pre>
+  </div>
+  <p>为什么要单例：一条 SSE 连接对服务端是一条内存记录 + 一个 socket。如果 10 个组件各自 new EventSource，服务端会记 10 条连接，心跳也广播 10 份。<strong>正确姿势是「一条连接 + 多个订阅者」</strong>——这正是下面事件注册表的作用。</p>
+
+  <h3 class="blockTitle">3.2 connect()：token 拼 URL + 建立连接</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>useSse.ts · L125-171（节选）</span><span class="lang">TypeScript</span></div>
+    <pre class="codeBlock"><code>const connect = () =&gt; {
+  isManualDisconnect = false;                        <span class="cmt">// 重置手动断开标志</span>
+  if (eventSource &amp;&amp; connectionState.value === SseConnectionState.CONNECTED) return;  <span class="cmt">// 防重复连</span>
+  if (connectionState.value === SseConnectionState.CONNECTING) return;
+
+  const token = AuthStorage.getAccessToken();
+  if (!token) return;                                <span class="cmt">// 未登录直接不连（游客不发请求）</span>
+
+  connectionState.value = SseConnectionState.CONNECTING;
+  <span class="cmt">// URL 形如 /prod-api/api/v1/sse/connect?token=eyJhbGci...（走 Nginx 反代，同源）</span>
+  const baseApi = import.meta.env.VITE_APP_BASE_API || "/dev-api";
+  const fullUrl = `${baseApi}/api/v1/sse/connect?token=${encodeURIComponent(token)}`;
+  eventSource = new EventSource(fullUrl);
+
+  <span class="cmt">// 10 秒连不上则主动断开（connectionTimeout 默认 10000ms），避免半死连接</span>
+  connectionTimeoutTimer = setTimeout(() =&gt; {
+    if (connectionState.value === SseConnectionState.CONNECTING) disconnect();
+  }, config.connectionTimeout);
+
+  eventSource.onopen  = handleOpen;    <span class="cmt">// 状态 → CONNECTED，清超时定时器</span>
+  eventSource.onerror = handleError;   <span class="cmt">// 状态 → DISCONNECTED；非手动断开时浏览器自动重连</span>
+  eventSource.onmessage = handleMessage; <span class="cmt">// 只接 event 字段缺省的 message 事件</span>
+};</code></pre>
+  </div>
+
+  <h3 class="blockTitle">3.3 事件注册表：一条连接分发多种业务</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>useSse.ts · L180-204（on 方法）</span><span class="lang">TypeScript</span></div>
+    <pre class="codeBlock"><code>const eventHandlers = new Map&lt;string, Set&lt;EventHandler&gt;&gt;();  <span class="cmt">// 事件名 → 一组回调</span>
+
+const on = (eventName: string, handler: EventHandler): (() =&gt; void) =&gt; {
+  if (!eventHandlers.has(eventName)) eventHandlers.set(eventName, new Set());
+  eventHandlers.get(eventName)!.add(handler);
+
+  <span class="cmt">// 关键：非 message 事件必须用 addEventListener 按名注册到 EventSource 上</span>
+  <span class="cmt">// （对应服务端 SseEmitter.event().name("xxx") 写出的 event: xxx 行）</span>
+  if (eventName !== "message" &amp;&amp; eventSource) {
+    eventSource.addEventListener(eventName, handleCustomEvent(eventName) as EventListener);
+  }
+  return () =&gt; { ... };   <span class="cmt">// 返回取消订阅函数——组件 onBeforeUnmount 时调用防泄漏</span>
+};</code></pre>
+  </div>
+  <p>分发流程：浏览器收到 <code>event: online-count</code> → 触发同名 listener → <code>handleCustomEvent("online-count")</code> 里 <code>JSON.parse(event.data)</code>（失败则原文透传）→ 逐个调用注册表里的 handler。新加一种推送（如 <code>im-message</code>），<strong>useSse 一行都不用改</strong>，新 composable 里 <code>on("im-message", ...)</code> 即可。</p>
+
+  <h3 class="blockTitle">3.4 发现的两个「断点」（本次改造要接上的线）</h3>
+  <ol>
+    <li><strong><code>setupSse()</code> 无人调用</strong>：<code>src/composables/sse/index.ts</code> 定义了统一的初始化入口 <code>setupSse()</code>（内部调 dictSync/onlineCount 的 initialize → 最终调 <code>sse.connect()</code>），但全仓 grep 不到任何调用点——main.ts 没调、布局组件也没调。<strong>SSE 链路目前整体是死代码，浏览器从未真正连过。</strong></li>
+    <li><strong>useNotice 订阅了永远不会来的事件</strong>：<code>src/components/NoticeDropdown/useNotice.ts</code> L73/L105 订阅了 <code>notice</code>、<code>notice-revoke</code> 两个事件，但后端全仓没有任何 <code>name("notice")</code> 的推送代码。前端逻辑写好了，生产者缺失——改造时把 NoticeService 的事件接上 sendToUser，这套代码立即活过来。</li>
+  </ol>
+  <div class="callout"><b>学习点</b>：排查「实时功能不工作」时，先画清三段链路——生产者（后端谁调 sendToUser）→ 通道（SseEmitter/EventSource 是否连上）→ 消费者（前端谁 on 了事件名）。本案是三段都各缺一刀：生产者没有 sendToUser、通道没有 connect、消费者等不到事件。事件名必须两端严格一致（<code>online-count</code> 带连字符，写错大小写都收不到）。</div>
+
+  <h3 class="blockTitle">3.5 参照范式：useOnlineCount 怎么写订阅</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>useOnlineCount.ts · 核心 20 行（新 useImMessages 将完全照此范式）</span><span class="lang">TypeScript</span></div>
+    <pre class="codeBlock"><code>function createOnlineCountComposable() {
+  const onlineUserCount = ref(0);            <span class="cmt">// 响应式状态</span>
+  const sse = useSse();                       <span class="cmt">// 拿单例连接</span>
+  let unsubscribe: (() =&gt; void) | null = null;
+
+  const initialize = () =&gt; {
+    sse.connect();                            <span class="cmt">// 确保连接（内部幂等，连着就跳过）</span>
+    unsubscribe = sse.on("online-count", (count: number) =&gt; {
+      if (count !== undefined &amp;&amp; !isNaN(count)) onlineUserCount.value = count;
+    });
+  };
+  const cleanup = () =&gt; { unsubscribe?.(); unsubscribe = null; };  <span class="cmt">// 只退订，不关全局连接</span>
+  return { onlineUserCount: readonly(onlineUserCount), initialize, cleanup, ... };
+}
+<span class="cmt">// 外层 useOnlineCount() 同样做了单例 + 组件上下文内 onMounted 自动 initialize</span></code></pre>
+  </div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="section" id="s4">
+  <p class="sectionKicker">Chapter 4 · 鉴权链路</p>
+  <h2 class="sectionTitle">token、@CurrentUserId、商家归属校验</h2>
+  <p class="sectionLead">客服消息涉及买卖双方，鉴权必须做到：连接能认人、接口能认人、数据能验归属。</p>
+
+  <h3 class="blockTitle">4.1 为什么 SSE 端点在 permitAll 里</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>SecurityConfig.java · L31</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>"/api/user/login", <span class="hl">"/api/v1/sse/**"</span>, ... .permitAll()</code></pre>
+  </div>
+  <p>原因链条：EventSource 不能设置请求头 → 带不了 <code>Authorization: Bearer</code> → Spring Security 的 JWT 过滤器认不出它 → 只能放行 URL → <strong>connect() 方法内部自行解析 <code>?token=</code></strong>（2.3 节第③步）。这是 SSE/WebSocket 项目的通行做法，代价是：token 出现在 URL 里，可能进访问日志——所以 TraceFilter 已把 <code>/api/v1/sse/</code> 列入噪声白名单不记录（一举两得）。</p>
+  <div class="dangerBox"><b>红线</b>：新的客服业务接口（发消息/查会话等 REST）<b>绝不放进 permitAll</b>。它们走普通 Authorization 头，由 Spring Security 的 <code>anyRequest().authenticated()</code> 正常拦截。</div>
+
+  <h3 class="blockTitle">4.2 @CurrentUserId 参数解析器</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>CurrentUserIdArgumentResolver.java · L27-48</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>@Override
+public boolean supportsParameter(MethodParameter parameter) {
+    <span class="cmt">// 只处理「标了 @CurrentUserId 且类型是 Long」的参数</span>
+    return parameter.hasParameterAnnotation(CurrentUserId.class)
+            &amp;&amp; Long.class.isAssignableFrom(parameter.getParameterType());
+}
+@Override
+public Object resolveArgument(...) {
+    String authHeader = request.getHeader("Authorization");
+    if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;  <span class="cmt">// 未登录 → null</span>
+    try {
+        return jwtUtil.getUserIdFromToken(tokenUtils.extractToken(authHeader)); <span class="cmt">// 解析失败也 → null</span>
+    } catch (Exception e) { return null; }
+}</code></pre>
+  </div>
+  <p>所以任何新 Controller 方法只要写 <code>@CurrentUserId Long userId</code> 就能拿到当前登录人 id——与项目里 <code>MerchantController</code> 的留言接口用法一致。注意它是「解析」不是「拦截」：真正的访问控制由 Spring Security 完成，两者分工不同。</p>
+
+  <h3 class="blockTitle">4.3 商家归属校验：项目范式</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>MerchantMessageServiceImpl.java · L82-90（replyToMessage）</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>public void replyToMessage(Long merchantId, Long messageId, String replyContent) {
+    MerchantMessage message = messageMapper.selectById(messageId);
+    if (message == null || <span class="hl">!message.getMerchantId().equals(merchantId)</span>) {
+        throw new BusinessException("留言不存在");     <span class="cmt">// 不是自己的数据，一律「不存在」</span>
+    }
+    ...  // 后续才允许操作
+}</code></pre>
+  </div>
+  <ul>
+    <li><strong>为什么要二次校验</strong>：登录只证明「你是谁」，不证明「这条数据归你」。商家 B 把 URL 里的 messageId 改成商家 A 的，必须在这里拦下（水平越权）。</li>
+    <li><strong>报错话术约定</strong>：返回「不存在」而非「无权限」，不向攻击者泄露数据是否存在。</li>
+    <li>新的 ChatService 对商家侧会话操作<strong>必须照抄这个模式</strong>：先 selectById 会话，再 <code>conversation.getMerchantId().equals(merchantId)</code>。</li>
+  </ul>
+</section>
+
+<!-- ================= 5 ================= -->
+<section class="section" id="s5">
+  <p class="sectionKicker">Chapter 5 · 数据模型</p>
+  <h2 class="sectionTitle">会话表设计与迁移脚本规范</h2>
+  <p class="sectionLead">旧表 <code>merchant_message</code> 是单轮结构（一行 = 留言 + 一个回复），没有会话概念，<strong>只读保留</strong>；新模块建两张表。</p>
+
+  <h3 class="blockTitle">5.1 表结构设计（目标 DDL）</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>目标代码 · db/V20260930__create_chat_tables.sql（设计稿）</span><span class="lang">SQL</span></div>
+    <pre class="codeBlock"><code><span class="cmt">-- 客服会话表：一个(用户, 商家)组合一条会话，聚合展示用</span>
+CREATE TABLE IF NOT EXISTS `chat_conversation` (
+    `id`               BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `user_id`          BIGINT      NOT NULL COMMENT '买家用户ID',
+    `merchant_id`      BIGINT      NOT NULL COMMENT '商家用户ID',
+    `product_id`       BIGINT      DEFAULT NULL COMMENT '关联商品ID（可为空=纯咨询）',
+    `last_message`     VARCHAR(200) DEFAULT NULL COMMENT '最后一条消息摘要（列表预览）',
+    `last_sender`      TINYINT     DEFAULT NULL COMMENT '最后一条发送方 1用户 2商家',
+    `last_msg_time`    DATETIME    DEFAULT NULL COMMENT '最后消息时间（会话列表排序字段）',
+    `user_unread`      INT         NOT NULL DEFAULT 0 COMMENT '用户未读数（商家发的未读）',
+    `merchant_unread`  INT         NOT NULL DEFAULT 0 COMMENT '商家未读数（用户发的未读）',
+    `create_time`      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    <span class="hl">UNIQUE KEY `uk_user_merchant` (`user_id`, `merchant_id`)</span>,
+    KEY `idx_merchant_time` (`merchant_id`, `last_msg_time`),
+    KEY `idx_user_time` (`user_id`, `last_msg_time`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '客服会话表';
+
+<span class="cmt">-- 聊天消息表：会话内的每一条消息，只增不改</span>
+CREATE TABLE IF NOT EXISTS `chat_message` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键（同时作游标分页游标）',
+    `conversation_id`  BIGINT       NOT NULL COMMENT '所属会话ID',
+    `sender_id`        BIGINT       NOT NULL COMMENT '发送者ID',
+    `sender_type`      TINYINT      NOT NULL COMMENT '1用户 2商家',
+    `content`          VARCHAR(500) NOT NULL COMMENT '消息内容（纯文本）',
+    `is_read`          TINYINT      NOT NULL DEFAULT 0 COMMENT '0未读 1已读',
+    `create_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY <span class="hl">`idx_conv_id` (`conversation_id`, `id`)</span>
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '客服聊天消息表';</code></pre>
+  </div>
+  <p><strong>四个设计决策的理由：</strong></p>
+  <ul>
+    <li><code>uk_user_merchant</code> 唯一键：防止「发起会话」接口并发重复建会话；发起逻辑用「先查 → 无则插」，撞唯一键时捕获重查即可。</li>
+    <li><strong>未读数冗余在会话表</strong>（user_unread/merchant_unread）：查「会话列表 + 各会话未读数」一次查询搞定，不用对消息表做 group by count——消息表随时间膨胀后这个代价差异巨大。</li>
+    <li><code>last_message/last_msg_time</code> 冗余：会话列表按最近消息排序是最高频查询，冗余后列表页零 join。</li>
+    <li>消息表索引 <code>(conversation_id, id)</code>：历史消息按「会话内 id 倒序翻页」的游标分页（<code>WHERE conversation_id=? AND id &lt; ? ORDER BY id DESC LIMIT 20</code>）正好命中。</li>
+  </ul>
+
+  <h3 class="blockTitle">5.2 迁移脚本规范（项目惯例）</h3>
+  <p>项目没有用 Flyway，迁移脚本是<strong>手工执行</strong>的，规范照 <code>db/V20260908__create_payment_transaction.sql</code>：</p>
+  <ul>
+    <li>命名 <code>V&lt;yyyyMMdd&gt;__&lt;动作&gt;.sql</code>，放 <code>src/main/resources/db/</code>；</li>
+    <li>文件头用 <code>--</code> 注释写清楚表用途和设计要点（范本的头注释就是三行要点）；</li>
+    <li>一律 <code>CREATE TABLE IF NOT EXISTS</code>，重复执行不报错（幂等）；</li>
+    <li>字段带反引号 + <code>COMMENT</code>；结尾 <code>ENGINE = InnoDB DEFAULT CHARSET = utf8mb4</code>；</li>
+    <li><strong>同步更新全量文件 <code>sql/eshops.sql</code></strong>（服务器新环境靠它初始化），否则线上重建库时会缺表。</li>
+  </ul>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="section" id="s6">
+  <p class="sectionKicker">Chapter 6 · 改造蓝图</p>
+  <h2 class="sectionTitle">一条消息的完整旅程</h2>
+  <p class="sectionLead">先把全局画出来，再列每个文件的改动。改完这条链路，客服对话 + 通知推送（激活 useNotice）就全通了。</p>
+
+  <h3 class="blockTitle">6.1 全链路时序</h3>
+  <div class="figure">
+    <svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, Consolas, monospace" font-size="12">
+      <defs>
+        <marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52525B"/></marker>
+        <marker id="a4" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#0FDC78"/></marker>
+      </defs>
+      <!-- actors -->
+      <rect x="20"  y="16" width="120" height="36" rx="8" fill="#EFEFF2" stroke="#17171722"/><text x="80"  y="39" text-anchor="middle" fill="#171717" font-weight="600">买家A 前端</text>
+      <rect x="210" y="16" width="130" height="36" rx="8" fill="#E5FFF2" stroke="#0FDC7866"/><text x="275" y="39" text-anchor="middle" fill="#004D26" font-weight="600">后端 REST</text>
+      <rect x="410" y="16" width="130" height="36" rx="8" fill="#E5FFF2" stroke="#0FDC7866"/><text x="475" y="39" text-anchor="middle" fill="#004D26" font-weight="600">ChatService</text>
+      <rect x="610" y="16" width="140" height="36" rx="8" fill="#E5FFF2" stroke="#0FDC7866"/><text x="680" y="39" text-anchor="middle" fill="#004D26" font-weight="600">SSE 推送服务</text>
+      <rect x="820" y="16" width="120" height="36" rx="8" fill="#EFEFF2" stroke="#17171722"/><text x="880" y="39" text-anchor="middle" fill="#171717" font-weight="600">商家B 前端</text>
+      <!-- lifelines -->
+      <line x1="80"  y1="52" x2="80"  y2="384" stroke="#17171722" stroke-dasharray="4 4"/>
+      <line x1="275" y1="52" x2="275" y2="384" stroke="#17171722" stroke-dasharray="4 4"/>
+      <line x1="475" y1="52" x2="475" y2="384" stroke="#17171722" stroke-dasharray="4 4"/>
+      <line x1="680" y1="52" x2="680" y2="384" stroke="#17171722" stroke-dasharray="4 4"/>
+      <line x1="880" y1="52" x2="880" y2="384" stroke="#17171722" stroke-dasharray="4 4"/>
+      <!-- messages -->
+      <line x1="80" y1="86" x2="275" y2="86" stroke="#52525B" stroke-width="1.4" marker-end="url(#a3)"/>
+      <text x="177" y="78" text-anchor="middle" fill="#52525B">① POST /api/v1/chat/messages（Authorization 头）</text>
+      <line x1="275" y1="124" x2="475" y2="124" stroke="#52525B" stroke-width="1.4" marker-end="url(#a3)"/>
+      <text x="375" y="116" text-anchor="middle" fill="#52525B">② send(userId=A, conversationId, content)</text>
+      <line x1="475" y1="162" x2="475" y2="196" stroke="#52525B" stroke-width="1.4" marker-end="url(#a3)"/>
+      <text x="500" y="184" fill="#52525B">③ 落库 chat_message + 更新会话冗余字段/B未读+1</text>
+      <line x1="475" y1="234" x2="680" y2="234" stroke="#52525B" stroke-width="1.4" marker-end="url(#a3)"/>
+      <text x="577" y="226" text-anchor="middle" fill="#52525B">④ ssePush.sendToUser(B, "im-message", json)</text>
+      <line x1="680" y1="272" x2="880" y2="272" stroke="#0FDC78" stroke-width="1.6" marker-end="url(#a4)"/>
+      <text x="780" y="264" text-anchor="middle" fill="#004D26">⑤ event: im-message → B 页面即时弹出气泡</text>
+      <!-- offline branch -->
+      <rect x="600" y="296" width="180" height="70" rx="8" fill="#FFF6E5" stroke="#E8B84B88"/>
+      <text x="690" y="318" text-anchor="middle" fill="#8A5A00">B 不在线时分支：</text>
+      <text x="690" y="336" text-anchor="middle" fill="#8A5A00">⑥ noticeService.createAndPublish</text>
+      <text x="690" y="354" text-anchor="middle" fill="#8A5A00">离线站内信，登录后补看</text>
+      <line x1="475" y1="331" x2="600" y2="331" stroke="#E8B84B" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a3)"/>
+    </svg>
+    <div class="figCap">图 2 · 上行走 REST（鉴权完整），下行走 SSE（推送给对方）；对方不在线降级为站内通知。</div>
+  </div>
+
+  <h3 class="blockTitle">6.2 后端改动清单（文件级）</h3>
+  <table class="tbl">
+    <thead><tr><th>文件</th><th>改动</th><th>要点</th></tr></thead>
+    <tbody>
+      <tr><td><code>SseController.java</code></td><td>重构注册表 + 抽推送服务</td><td><code>Map&lt;Long, Set&lt;SseEmitter&gt;&gt;</code> 按用户分组；新增 <code>sendToUser(userId, event, data)</code>；保留 5 秒心跳</td></tr>
+      <tr><td>新增 <code>SsePushService</code>（或并入 controller）</td><td>对内推送门面</td><td>遍历该用户所有 emitter 逐个 send；失败即移除该 emitter；用户无连接时返回 false 给调用方</td></tr>
+      <tr><td>新增 <code>ChatConversation / ChatMessage</code> 实体 + Mapper</td><td>两张表</td><td>MyBatis-Plus，IdType.AUTO，照抄 MerchantMessage 实体写法</td></tr>
+      <tr><td>新增 <code>ChatService / Impl</code></td><td>核心业务</td><td>发起会话、会话列表、历史消息（游标分页）、发消息（落库→推送→离线兜底）、标记已读、未读数；商家侧操作带 4.3 归属校验</td></tr>
+      <tr><td>新增 <code>ChatController</code> <code>/api/v1/chat</code></td><td>REST 端点</td><td>参数一律 <code>@CurrentUserId</code>；<strong>不进 permitAll</strong></td></tr>
+      <tr><td><code>NoticeService 调用点</code></td><td>激活 useNotice</td><td>离线兜底时 <code>createAndPublish(...)</code>；同时补 <code>sendToUser(userId,"notice",json)</code> 让在线用户立即收到角标</td></tr>
+      <tr><td><code>TraceFilter.isNoiseEndpoint()</code></td><td>登记新噪声路径</td><td>若新增轮询类接口（如未读总数）须加入白名单；<code>/api/v1/chat/</code> 是低频操作可不加</td></tr>
+      <tr><td><code>db/V20260930__create_chat_tables.sql</code></td><td>建表脚本</td><td>并同步 <code>sql/eshops.sql</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>注册表改造目标骨架（<strong>目标代码</strong>，实施时以此为准）：</p>
+  <div class="codeWrap">
+    <div class="codeHead"><span>目标代码 · SseController 改造核心（骨架）</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code><span class="cmt">// 改造前：Map&lt;String, SseEmitter&gt;（按连接，无法定向推）</span>
+<span class="cmt">// 改造后：userId → 该用户所有活跃连接（多 Tab 各一条，都能收到）</span>
+private final Map&lt;Long, Set&lt;SseEmitter&gt;&gt; userEmitters = new ConcurrentHashMap&lt;&gt;();
+
+private void register(Long userId, SseEmitter emitter) {
+    userEmitters.computeIfAbsent(userId, k -&gt; ConcurrentHashMap.newKeySet()).add(emitter);
+}
+private void unregister(Long userId, SseEmitter emitter) {
+    Set&lt;SseEmitter&gt; set = userEmitters.get(userId);
+    if (set != null) {
+        set.remove(emitter);
+        if (set.isEmpty()) userEmitters.remove(userId);   <span class="cmt">// 防止空 Set 堆积</span>
+    }
+}
+
+<span class="cmt">// 定向推送：给某个在线用户的所有连接推同一事件；返回是否至少送达一条</span>
+public boolean sendToUser(Long userId, String eventName, Object data) {
+    Set&lt;SseEmitter&gt; set = userEmitters.get(userId);
+    if (set == null || set.isEmpty()) return false;        <span class="cmt">// 不在线 → 调用方走离线通知兜底</span>
+    boolean delivered = false;
+    for (SseEmitter emitter : set) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName)
+                    .data(data, MediaType.APPLICATION_JSON));
+            delivered = true;
+        } catch (IOException e) {
+            set.remove(emitter);                           <span class="cmt">// 死连接顺手清掉</span>
+        }
+    }
+    return delivered;
+}</code></pre>
+  </div>
+
+  <h3 class="blockTitle">6.3 ChatService 接口设计（目标代码）</h3>
+  <div class="codeWrap">
+    <div class="codeHead"><span>目标代码 · ChatService.java（骨架）</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>public interface ChatService {
+    /** 发起/获取与某商家的会话（唯一键防重） */
+    ChatConversation getOrCreateConversation(Long userId, Long merchantId, Long productId);
+
+    /** 我的会话列表（按最后消息时间倒序，带未读数） */
+    List&lt;ConversationVO&gt; listConversations(Long userId, boolean asMerchant);
+
+    /** 历史消息，游标分页：首次传 beforeId=null 取最新 20 条，往上翻传最早一条的 id */
+    List&lt;ChatMessage&gt; listMessages(Long userId, Long conversationId, Long beforeId, int limit);
+
+    /** 发消息：落库 → sendToUser 推对方 → 对方不在线 createAndPublish 离线通知 */
+    ChatMessage sendMessage(Long senderId, Long conversationId, String content);
+
+    /** 进入会话时把对方发来的未读清零 */
+    void markRead(Long userId, Long conversationId);
+
+    /** 顶栏角标用：全站未读消息总数 */
+    long getTotalUnread(Long userId, boolean asMerchant);
+}</code></pre>
+  </div>
+  <p><code>sendMessage</code> 的实现顺序有讲究（<strong>目标代码</strong>）：</p>
+  <div class="codeWrap">
+    <div class="codeHead"><span>目标代码 · sendMessage 实现要点</span><span class="lang">Java</span></div>
+    <pre class="codeBlock"><code>@Transactional
+public ChatMessage sendMessage(Long senderId, Long conversationId, String content) {
+    ChatConversation conv = conversationMapper.selectById(conversationId);
+    if (conv == null) throw new BusinessException("会话不存在");
+    <span class="cmt">// 归属校验：发送者必须是会话双方之一（水平越权防线）</span>
+    if (!conv.getUserId().equals(senderId) &amp;&amp; !conv.getMerchantId().equals(senderId))
+        throw new BusinessException("会话不存在");
+
+    <span class="cmt">// 1. 落库（id 自增即游标）</span>
+    ChatMessage msg = new ChatMessage().setConversationId(conversationId)
+            .setSenderId(senderId).setSenderType(...).setContent(content).setIsRead(0);
+    messageMapper.insert(msg);
+
+    <span class="cmt">// 2. 更新会话冗余字段：last_message/last_msg_time/last_sender + 对方 unread+1</span>
+    boolean fromUser = conv.getUserId().equals(senderId);
+    LambdaUpdateWrapper&lt;ChatConversation&gt; uw = new LambdaUpdateWrapper&lt;&gt;();
+    uw.eq(ChatConversation::getId, conversationId)
+      .set(ChatConversation::getLastMessage, abbreviate(content, 200))
+      .set(ChatConversation::getLastSender, fromUser ? 1 : 2)
+      .set(ChatConversation::getLastMsgTime, msg.getCreateTime())
+      .setSql(fromUser ? "merchant_unread = merchant_unread + 1"
+                       : "user_unread = user_unread + 1");
+    conversationMapper.update(null, uw);
+
+    <span class="cmt">// 3. 实时推送对方；不在线 → 离线站内信兜底（事务内 createAndPublish 与留言模块同款）</span>
+    Long receiverId = fromUser ? conv.getMerchantId() : conv.getUserId();
+    boolean online = ssePushService.sendToUser(receiverId, "im-message", toPayload(msg, conv));
+    if (!online) {
+        noticeService.createAndPublish("您有新的客服消息", abbreviate(content, 100),
+                3, receiverId, "chat_message", msg.getId());
+    }
+    return msg;
+}</code></pre>
+  </div>
+
+  <h3 class="blockTitle">6.4 前端改动清单</h3>
+  <table class="tbl">
+    <thead><tr><th>文件</th><th>改动</th><th>要点</th></tr></thead>
+    <tbody>
+      <tr><td><code>main.ts</code></td><td>调用 <code>setupSse()</code></td><td>登录用户才连（useSse 内部已判 token）；登出处调 <code>cleanupSseServices()</code></td></tr>
+      <tr><td>新增 <code>src/composables/sse/useImMessages.ts</code></td><td>IM 状态订阅单例</td><td>完全仿 useOnlineCount：订阅 <code>im-message</code>，维护未读数 ref；页面在场时直接追加气泡</td></tr>
+      <tr><td>新增 <code>src/api/chat.ts</code></td><td>REST 封装</td><td>getOrCreate/listConversations/listMessages/send/markRead/unread</td></tr>
+      <tr><td>新增 <code>views/shop/message/index.vue</code></td><td>买家会话页 <code>/shop/message</code></td><td>左会话列表 + 右聊天窗；游标分页（滚到顶加载更早）；进会话调 markRead</td></tr>
+      <tr><td>新增 <code>views/merchant/conversations/index.vue</code></td><td>商家工作台 <code>/merchant/conversations</code></td><td>同一套组件换数据源（asMerchant）</td></tr>
+      <tr><td><code>CustomerServiceFab</code> / 商品页「联系商家」</td><td>入口改造</td><td>跳会话页并带 merchantId/productId，替代旧的「小对话框留言」</td></tr>
+      <tr><td><code>useNotice.ts</code></td><td>零改动</td><td>后端开始推 <code>notice</code> 事件后自动生效</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="blockTitle">6.5 边界与取舍（必须知道的现实约束）</h3>
+  <ul>
+    <li><strong>单实例内存态</strong>：<code>userEmitters</code> 在 JVM 内存里。服务重启 → 全部连接断 → EventSource 自动重连恢复；会话/消息都在 MySQL，<strong>不丢数据</strong>。将来若部署多实例，需把「找用户在哪个实例」改为 Redis 注册表 + pub/sub 广播——当前 2C2G 单实例<strong>不需要做</strong>，但面试能讲清这个演进路径。</li>
+    <li><strong>消息可靠性模型是「拉兜底推加速」</strong>：SSE 只保证「在线时快」，不保证「必达」；真源在 MySQL，进会话页必拉历史消息 + 未读数，断线重连后页面刷新即对齐。这就是为什么不需要复杂的 ACK 机制。</li>
+    <li><strong>Nginx 已就绪</strong>：生产配置已含 <code>proxy_buffering off</code> + <code>proxy_read_timeout 3600s</code>，前端改动零运维。</li>
+  </ul>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="section" id="s7">
+  <p class="sectionKicker">Chapter 7 · 动手</p>
+  <h2 class="sectionTitle">动手实验清单（确认后按此顺序改）</h2>
+  <ul class="stepList">
+    <li><strong>跑通现有 SSE</strong>：本地起后端，临时在 main.ts 调 <code>setupSse()</code>，F12 Network 看 <code>/sse/connect</code> 变为 EventStream，每 5 秒收到 online-count。<span class="cmt">验证：Network 面板看到持续流入。</span></li>
+    <li><strong>改造 SseController</strong>：按 6.2 骨架改注册表 + sendToUser；写一个临时测试端点给自己推一条 <code>test</code> 事件。<span class="cmt">验证：curl 触发端点，页面 on("test") 收到。</span></li>
+    <li><strong>建表</strong>：写 V20260930 脚本本地执行，同步 eshops.sql；生成实体 + Mapper。<span class="cmt">验证：Navicat 见表，启动无映射报错。</span></li>
+    <li><strong>ChatService + ChatController</strong>：按 6.3 实现，Swagger 自测发消息（此时对方不在线，确认走了 createAndPublish 分支，通知表有记录）。<span class="cmt">验证：两次 curl 模拟双方，消息表与会话冗余字段正确。</span></li>
+    <li><strong>前端接线</strong>：main.ts 正式调 setupSse + 登出清理；新增 useImMessages 与 api/chat.ts。<span class="cmt">验证：两个浏览器分别登录买家/商家，买家发消息商家页面秒收。</span></li>
+    <li><strong>页面 + 入口</strong>：/shop/message 会话页、/merchant/conversations 工作台、客服浮球与商品页入口改跳转。<span class="cmt">验证：断网 10 秒再恢复，连接自动恢复、刷新后未读数正确（拉兜底生效）。</span></li>
+  </ul>
+  <div class="note">每步都是可独立验证的最小闭环——任何一步出问题都能立刻定位是哪一刀引入的。</div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="section" id="s8">
+  <p class="sectionKicker">Chapter 8 · 附录</p>
+  <h2 class="sectionTitle">常见坑速查表</h2>
+  <table class="tbl">
+    <thead><tr><th>坑</th><th>现象</th><th>对策</th></tr></thead>
+    <tbody>
+      <tr><td>Nginx 开着 proxy_buffering</td><td>本机正常，线上推送「攒一堆一起到」</td><td>生产已配 <code>proxy_buffering off</code>，勿动</td></tr>
+      <tr><td>心跳缺失</td><td>几十秒后连接静默被中间设备掐断</td><td>保留 5 秒 online-count 或改专用 ping 事件</td></tr>
+      <tr><td>回调漏移除 emitter</td><td>广播线程持续对死连接 send 抛 IO 异常</td><td>onCompletion/onTimeout/onError 三处 + send 失败处都要 remove</td></tr>
+      <tr><td>事件名两端不一致</td><td>后端 name("im-msg") 前端 on("im-message")，永远收不到</td><td>事件名收敛到常量（前后端各一份，文档注明）</td></tr>
+      <tr><td>新接口误入 permitAll</td><td>接口裸奔可被匿名调用</td><td>只有 <code>/api/v1/sse/**</code> 放行；REST 一律走 Security</td></tr>
+      <tr><td>漏归属校验</td><td>改 conversationId 参数可读/写别人会话（水平越权）</td><td>sendMessage/markRead/listMessages 都先校验「我是会话双方之一」</td></tr>
+      <tr><td>连接复用登录态过期</td><td>token 过期后 SSE 还挂着旧连接</td><td>emitter 超时 1h 兜底；登出时 cleanupSseServices 主动断</td></tr>
+      <tr><td>用线程存 ThreadLocal 传用户</td><td>异步 Servlet 下取不到</td><td>建立连接时就解析好 userId 存进闭包/注册表，不依赖请求上下文</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer style="margin-top:32px; text-align:center; color:var(--text-muted); font:var(--weight-regular) var(--text-caption) var(--font-sans);">
+  客服会话 SSE 实现学习文档 · 基于 e-shop 真实源码 · 确认后按第 7 章清单开始改代码
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var toggle = document.getElementById("themeToggle");
+  var root = document.documentElement;
+  try {
+    var saved = localStorage.getItem("eshop-doc-theme");
+    if (saved === "dark") root.setAttribute("data-doc-theme", "dark");
+  } catch (e) {}
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      var dark = root.getAttribute("data-doc-theme") === "dark";
+      if (dark) root.removeAttribute("data-doc-theme");
+      else root.setAttribute("data-doc-theme", "dark");
+      try { localStorage.setItem("eshop-doc-theme", dark ? "light" : "dark"); } catch (e) {}
+    });
+  }
+})();
+</script>
+</body>
+</html>

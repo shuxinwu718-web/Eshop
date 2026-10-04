@@ -9,6 +9,7 @@ import com.shopsphere.eshop.dto.CommentSaveDTO;
 import com.shopsphere.eshop.entity.ProductComment;
 import com.shopsphere.eshop.service.ProductCommentService;
 import com.shopsphere.eshop.vo.ProductCommentVO;
+import com.shopsphere.eshop.vo.ProductCommentStatsVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/comments")
@@ -72,6 +74,40 @@ public class ProductCommentController {
     @GetMapping("/product/{productId}/all")
     public Result<List<ProductCommentVO>> getProductCommentsFlat(@PathVariable Long productId) {
         return Result.success(commentService.getProductCommentsFlat(productId));
+    }
+
+    // 用户端：分页获取商品评论（带用户信息/已购标识/点赞状态；type: 0全部 1好评 2中评 3差评；sortBy: 0时间 1热度）
+    @GetMapping("/product/{productId}/page")
+    public Result<Page<ProductCommentVO>> pageProductComments(@PathVariable Long productId,
+                                                              @RequestParam(defaultValue = "1") Integer pageNum,
+                                                              @RequestParam(defaultValue = "10") Integer pageSize,
+                                                              @RequestParam(defaultValue = "0") Integer type,
+                                                              @RequestParam(defaultValue = "false") Boolean onlyImage,
+                                                              @RequestParam(defaultValue = "0") Integer sortBy,
+                                                              @CurrentUserId Long currentUserId) {
+        return Result.success(commentService.pageProductComments(
+                productId, pageNum, pageSize, type, onlyImage, sortBy, currentUserId));
+    }
+
+    // 用户端：商品评价聚合统计（平均分/好评率/星级分布/有图数/最近晒图）
+    @GetMapping("/product/{productId}/stats")
+    public Result<ProductCommentStatsVO> getCommentStats(@PathVariable Long productId) {
+        return Result.success(commentService.getCommentStats(productId));
+    }
+
+    // 查询当前用户是否已对某商品发表过评价（订单列表用于判断"去评价"按钮状态）
+    @GetMapping("/exists")
+    public Result<Boolean> existsUserComment(
+            @RequestParam Long productId,
+            @RequestParam(required = false) Long orderId,
+            @CurrentUserId Long userId) {
+        return Result.success(commentService.existsUserComment(orderId, productId, userId));
+    }
+
+    // 点赞/取消点赞（toggle），返回 {liked, likeCount}
+    @PostMapping("/{commentId}/like")
+    public Result<Map<String, Object>> toggleLike(@PathVariable Long commentId, @CurrentUserId Long userId) {
+        return Result.success(commentService.toggleLike(commentId, userId));
     }
 
     // 管理员：分页查询所有评论

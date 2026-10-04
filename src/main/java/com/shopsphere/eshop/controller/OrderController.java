@@ -104,6 +104,24 @@ public class OrderController {
         return Result.success(orderService.getOrderDetail(orderId, userId));
     }
 
+    /**
+     * 用户查询单个发货单的物流轨迹（模拟物流，校验订单归属）
+     */
+    @GetMapping("/track/shipment/{shipmentId}")
+    public Result<?> getShipmentTrack(@PathVariable Long shipmentId,
+                                      @CurrentUserId Long userId) {
+        return Result.success(orderService.getShipmentTrack(shipmentId, userId));
+    }
+
+    /**
+     * 用户查询某订单下所有发货单的物流轨迹组（模拟物流，校验订单归属）
+     */
+    @GetMapping("/track/order/{orderId}")
+    public Result<?> getOrderTracks(@PathVariable Long orderId,
+                                    @CurrentUserId Long userId) {
+        return Result.success(orderService.getOrderTracks(orderId, userId));
+    }
+
     @PostMapping("/refund/apply")
     public Result<?> applyRefund(@RequestBody @Valid RefundApplyDTO dto,
                                  @CurrentUserId Long userId) {

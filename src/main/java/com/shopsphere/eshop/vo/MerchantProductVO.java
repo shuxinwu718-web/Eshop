@@ -15,6 +15,7 @@ public class MerchantProductVO {
     private String categoryName;
     private BigDecimal price;
     private Integer stock;
+    private Integer sales;       // 销量（列表页展示，商家识别热销/滞销）
     private String coverImage;   // 封面（建议统一驼峰）
     private String description;
     private Integer status;

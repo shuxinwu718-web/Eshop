@@ -94,6 +94,7 @@ public class MerchantController {
             vo.setCategoryId(p.getCategoryId());
             vo.setPrice(p.getPrice());
             vo.setStock(p.getStock());
+            vo.setSales(p.getSales());
             vo.setCoverImage(p.getCoverImage());
             vo.setDescription(p.getDescription());
             vo.setStatus(p.getStatus());

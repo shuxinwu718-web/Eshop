@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>客服会话模块 · 实时推送方案选型（SSE vs WebSocket）</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #F7F7F8;
+  --surface-muted: #EFEFF2;
+  --text: #171717;
+  --text-muted: #52525B;
+  --border: rgba(23, 23, 23, 0.12);
+  --brand: #0FDC78;
+  --brand-soft: #E5FFF2;
+  --brand-text: #004D26;
+  --brand-on: #004D26;
+  --radius: 8px;
+  --radius-card: 12px;
+  --radius-full: 999px;
+  --spacer-4: 4px;
+  --spacer-8: 8px;
+  --spacer-12: 12px;
+  --spacer-16: 16px;
+  --spacer-20: 20px;
+  --spacer-24: 24px;
+  --spacer-32: 32px;
+  --font-sans: "SF Pro Text", "PingFang SC", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --text-caption: 12px/18px;
+  --text-body: 14px/22px;
+  --text-title: 16px/24px;
+  --text-code: 13px/20px;
+}
+:root[data-doc-theme="dark"] {
+  color-scheme: dark;
+  --surface: #171717;
+  --surface-muted: #262626;
+  --text: #E5E5E5;
+  --text-muted: #A1A1AA;
+  --border: rgba(229, 229, 229, 0.14);
+  --brand: #32F08C;
+  --brand-soft: #004D26;
+  --brand-text: #E5FFF2;
+  --brand-on: #004D26;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: var(--weight-regular) var(--text-body) var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: var(--spacer-32) var(--spacer-20) 96px;
+}
+
+/* ---------- 页头 ---------- */
+.docHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacer-16);
+  padding: var(--spacer-24);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.docHeaderMain { display: grid; gap: var(--spacer-8); min-width: 0; }
+.docTitle {
+  margin: 0;
+  font: var(--weight-medium) 22px/32px var(--font-sans);
+  letter-spacing: -0.01em;
+}
+.docSub { margin: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-body) var(--font-sans); }
+.docMeta { margin: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+
+.themeToggle {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 var(--spacer-16);
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+}
+.themeToggle:hover { border-color: var(--brand); color: var(--brand-text); }
+
+/* ---------- 目录 ---------- */
+.toc {
+  margin-top: var(--spacer-20);
+  padding: var(--spacer-20);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.tocTitle { margin: 0 0 var(--spacer-12); font: var(--weight-medium) var(--text-title) var(--font-sans); }
+.tocList { display: grid; gap: var(--spacer-8); margin: 0; padding: 0; list-style: none; }
+.tocList a {
+  color: var(--text);
+  text-decoration: none;
+  font: var(--weight-regular) var(--text-body) var(--font-sans);
+}
+.tocList a:hover { color: var(--brand-text); }
+.tocNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: var(--spacer-8);
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 章节 ---------- */
+.section {
+  margin-top: var(--spacer-32);
+  padding: var(--spacer-24);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.sectionHead { display: grid; gap: var(--spacer-8); }
+.sectionKicker {
+  color: var(--text-muted);
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.sectionTitle { margin: 0; font: var(--weight-medium) 18px/28px var(--font-sans); }
+.sectionLead { margin: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-body) var(--font-sans); }
+
+h3.blockTitle {
+  margin: var(--spacer-24) 0 var(--spacer-8);
+  font: var(--weight-medium) var(--text-title) var(--font-sans);
+}
+p { margin: 0 0 var(--spacer-12); }
+p:last-child { margin-bottom: 0; }
+ul, ol { margin: 0 0 var(--spacer-12); padding-left: 1.35em; }
+li { margin-bottom: var(--spacer-4); }
+li:last-child { margin-bottom: 0; }
+strong { font-weight: var(--weight-strong); }
+code {
+  padding: 1px 5px;
+  color: var(--brand-text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: var(--weight-medium) var(--text-code) var(--font-mono);
+}
+.note {
+  margin-top: var(--spacer-16);
+  padding: var(--spacer-12) var(--spacer-16);
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+.callout {
+  margin-top: var(--spacer-16);
+  padding: var(--spacer-16);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.calloutTitle { margin: 0 0 var(--spacer-8); font: var(--weight-medium) var(--text-title) var(--font-sans); }
+
+/* ---------- 图 ---------- */
+.figure {
+  margin-top: var(--spacer-16);
+  padding: var(--spacer-12);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.diagram { display: block; width: 100%; height: auto; }
+.figureCaption {
+  margin: var(--spacer-8) 0 0;
+  color: var(--text-muted);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+
+/* SVG 元件 */
+.lane { fill: var(--surface); stroke: var(--border); }
+.hold { fill: var(--surface-muted); stroke: var(--border); }
+.chip { fill: var(--surface-muted); stroke: var(--border); }
+.rail {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail[data-focus="true"] { stroke: var(--brand); stroke-width: 1.8; }
+.head { fill: var(--text-muted); }
+.head[data-focus="true"] { fill: var(--brand); }
+.t { fill: var(--text); font: var(--weight-medium) var(--text-body) var(--font-sans); }
+.ts { fill: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+.chipText { fill: var(--text-muted); font: var(--weight-medium) var(--text-caption) var(--font-sans); }
+.pbox { fill: var(--surface); stroke: var(--border); }
+.pbox[data-role="focus"] { fill: var(--brand-soft); stroke: var(--brand); }
+.pLabel { fill: var(--text); font: var(--weight-medium) var(--text-body) var(--font-sans); }
+.pCaption { fill: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+.pbox[data-role="focus"] + .pLabel { fill: var(--brand-text); }
+.lifeline {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 7;
+  stroke-linecap: round;
+  opacity: .7;
+}
+.msg {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.msg[data-type="return"] { stroke-dasharray: 7 6; }
+.msg[data-focus="true"] { stroke: var(--brand); stroke-width: 1.8; stroke-dasharray: none; }
+.mLabel { fill: var(--text); font: var(--weight-medium) var(--text-caption) var(--font-sans); }
+.mLabel[data-focus="true"] { fill: var(--brand-text); }
+.labelBg { fill: var(--surface); stroke: var(--border); }
+.labelBg[data-focus="true"] { fill: var(--brand-soft); stroke: var(--brand); }
+.phaseLabel { fill: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+
+/* ---------- 对比卡片 ---------- */
+.comparisonGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacer-16);
+  margin-top: var(--spacer-16);
+}
+.compareCard {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--spacer-20);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.badgeRow { display: flex; align-items: center; gap: var(--spacer-8); min-height: 24px; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--spacer-8);
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+}
+.badge[data-tone="brand"] { color: var(--brand-text); border-color: var(--brand); }
+.cardTitle { display: grid; gap: var(--spacer-4); margin-top: var(--spacer-12); }
+.optionName { margin: 0; font: var(--weight-medium) var(--text-title) var(--font-sans); }
+.optionMeta { margin: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+.metricList { display: grid; align-content: start; margin-top: var(--spacer-16); border-top: 1px solid var(--border); }
+.metricRow {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) minmax(88px, 1fr);
+  align-items: center;
+  gap: var(--spacer-12);
+  min-height: 48px;
+  border-bottom: 1px solid var(--border);
+}
+.metricLabel { min-width: 0; color: var(--text-muted); font: var(--weight-regular) var(--text-caption) var(--font-sans); }
+.metricValue {
+  min-width: 0;
+  color: var(--text);
+  text-align: right;
+  font: var(--weight-medium) var(--text-body) var(--font-sans);
+}
+.metricValue[data-tone="brand"] { color: var(--brand-text); }
+.tagList { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacer-8); margin-top: var(--spacer-16); }
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--spacer-8);
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+}
+.tag[data-tone="brand"] { color: var(--brand-text); border-color: var(--brand); }
+
+/* ---------- 表格 ---------- */
+.tableWrap { margin-top: var(--spacer-16); overflow-x: auto; }
+table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+th, td {
+  padding: var(--spacer-12) var(--spacer-16);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  font: var(--weight-regular) var(--text-body) var(--font-sans);
+}
+th {
+  color: var(--text);
+  background: var(--surface);
+  font: var(--weight-medium) var(--text-caption) var(--font-sans);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* ---------- 落地清单 ---------- */
+.checkList { display: grid; gap: var(--spacer-20); margin-top: var(--spacer-16); }
+.checkGroup {
+  padding: var(--spacer-16);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.checkGroup h4 { margin: 0 0 var(--spacer-12); font: var(--weight-medium) var(--text-title) var(--font-sans); }
+.checkList ol { margin: 0; padding-left: 1.35em; }
+.path {
+  color: var(--text-muted);
+  font: var(--weight-regular) var(--text-code) var(--font-mono);
+  word-break: break-all;
+}
+.footer {
+  margin-top: var(--spacer-32);
+  padding-top: var(--spacer-16);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font: var(--weight-regular) var(--text-caption) var(--font-sans);
+}
+
+@media (max-width: 820px) {
+  .comparisonGrid { grid-template-columns: 1fr; }
+  .page { padding: var(--spacer-20) var(--spacer-16) 72px; }
+  .docHeader { display: grid; }
+  .themeToggle { width: fit-content; }
+  table { min-width: 460px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="docHeader">
+    <div class="docHeaderMain">
+      <h1 class="docTitle">客服会话模块 · 实时推送方案选型</h1>
+      <p class="docSub">短轮询 / SSE / WebSocket 的机制对比，以及在本项目 2 核 2G 单机上的落地判断</p>
+      <p class="docMeta">项目：E-Shop 电商系统（后端 Desktop\e-shop） · 文档日期：2026-09-29</p>
+    </div>
+    <button class="themeToggle" id="themeToggle" type="button">切换深色</button>
+  </header>
+
+  <nav class="toc" aria-label="目录">
+    <h2 class="tocTitle">目录</h2>
+    <ul class="tocList">
+      <li><a href="#s1"><span class="tocNum">1</span>现状：为什么沟通慢</a></li>
+      <li><a href="#s2"><span class="tocNum">2</span>方案一：SSE 长连接</a></li>
+      <li><a href="#s3"><span class="tocNum">3</span>方案二：WebSocket</a></li>
+      <li><a href="#s4"><span class="tocNum">4</span>三方案横向对比</a></li>
+      <li><a href="#s5"><span class="tocNum">5</span>三个关键判断</a></li>
+      <li><a href="#s6"><span class="tocNum">6</span>可复用的现有资产</a></li>
+      <li><a href="#s7"><span class="tocNum">7</span>推荐落地路径</a></li>
+      <li><a href="#s8"><span class="tocNum">8</span>待决策项</a></li>
+    </ul>
+  </nav>
+
+  <!-- ============ 1 ============ -->
+  <section class="section" id="s1">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 01</span>
+      <h2 class="sectionTitle">现状：为什么沟通慢</h2>
+      <p class="sectionLead">用户只能发一次留言、商家回一次，且双方都没有实时通道。</p>
+    </div>
+
+    <h3 class="blockTitle">数据模型是"单轮问答"，不是会话</h3>
+    <p><code>merchant_message</code> 一行记录 = 用户留言 + 一个 <code>reply_content</code> / <code>reply_time</code>。商家回复一次后这条就结束了，用户想追问只能再发一条新留言。表里没有 conversation（会话）概念，也没有消息序列，因此无法承载连续对话。</p>
+
+    <h3 class="blockTitle">双方都没有实时通道</h3>
+    <p>商家回复时，只会写一条站内通知（<code>NoticeService.createAndPublish</code>），用户端的未读数靠前端 <strong>30 秒轮询</strong>兜底，且这个间隔被硬编码在三个文件里。用户体验上表现为"问完要等，回完不知道"。</p>
+
+    <h3 class="blockTitle">消息从服务端到客户端的三种老办法</h3>
+    <p>要让服务端主动把新消息送到浏览器，只有三条路：客户端反复问（轮询）、等客户端的问（长轮询）、或者干脆不让客户端问（服务端推送）。前两条属于"客户端拉动"，本质没变，只是节奏不同。</p>
+
+    <figure class="figure">
+      <svg class="diagram" viewBox="0 0 720 300" role="img" aria-label="短轮询与长轮询的请求响应时间线对比图">
+        <defs>
+          <marker id="flowHead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+          <marker id="flowHeadFocus" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" data-focus="true" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+        </defs>
+        <rect class="chip" x="40" y="16" width="126" height="26" rx="13" />
+        <text class="ts" x="103" y="34" text-anchor="middle">→ 请求（上行）</text>
+        <rect class="chip" x="174" y="16" width="126" height="26" rx="13" />
+        <text class="ts" x="237" y="34" text-anchor="middle">← 响应（下行）</text>
+
+        <rect class="lane" x="160" y="60" width="520" height="76" rx="12" />
+        <text class="t" x="40" y="80">短轮询</text>
+        <text class="ts" x="40" y="100">多数请求空手而归</text>
+        <path class="rail" d="M186 86 H266" marker-end="url(#flowHead)" />
+        <path class="rail" d="M362 86 H442" marker-end="url(#flowHead)" />
+        <path class="rail" d="M282 110 H202" marker-end="url(#flowHead)" />
+        <path class="rail" d="M458 110 H378" marker-end="url(#flowHead)" />
+
+        <rect class="lane" x="160" y="152" width="520" height="76" rx="12" />
+        <text class="t" x="40" y="172">长轮询</text>
+        <text class="ts" x="40" y="192">挂起等待新消息</text>
+        <path class="rail" d="M186 178 H266" marker-end="url(#flowHead)" />
+        <rect class="hold" x="286" y="176" width="160" height="28" rx="8" />
+        <text class="ts" x="366" y="195" text-anchor="middle">挂起等待 ≤30s</text>
+        <path class="rail" data-focus="true" d="M520 202 H470" marker-end="url(#flowHeadFocus)" />
+
+        <rect class="chip" x="40" y="248" width="300" height="28" rx="14" />
+        <text class="ts" x="190" y="267" text-anchor="middle">短轮询：实时性差、无效请求多</text>
+        <rect class="chip" x="356" y="248" width="324" height="28" rx="14" />
+        <text class="ts" x="518" y="267" text-anchor="middle">长轮询：延迟低，但连接被占住</text>
+      </svg>
+      <figcaption class="figureCaption">图 1 · 短轮询按固定间隔反复请求；长轮询把请求挂起，直到有新数据才返回。</figcaption>
+    </figure>
+
+    <div class="note">
+      两种轮询都不改变"客户端拉动"的本质：间隔长则慢，间隔短则服务端被无效请求打满。真正让服务端"主动说话"的技术，只有 SSE 与 WebSocket。
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section class="section" id="s2">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 02</span>
+      <h2 class="sectionTitle">方案一：SSE 长连接</h2>
+      <p class="sectionLead">一次普通 HTTP 请求，换回一条服务端可以随时往里写数据的连接。</p>
+    </div>
+
+    <p>SSE（Server-Sent Events）建立在 HTTP 之上：浏览器用 <code>EventSource</code> 发起一个 GET 请求，服务端返回 <code>Content-Type: text/event-stream</code> 之后<strong>不结束响应</strong>，而是保持这条连接打开。此后服务端随时可以按固定格式写入一段文本，浏览器对应的监听函数立刻被触发。</p>
+
+    <figure class="figure">
+      <svg class="diagram" viewBox="0 0 720 400" role="img" aria-label="SSE 建立长连接与服务端推送事件序列图">
+        <defs>
+          <marker id="sseHead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+          <marker id="sseHeadFocus" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" data-focus="true" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+        </defs>
+
+        <g>
+          <rect class="pbox" data-role="focus" x="120" y="44" width="120" height="54" rx="8" />
+          <text class="pLabel" x="180" y="67" text-anchor="middle">浏览器</text>
+          <text class="pCaption" x="180" y="87" text-anchor="middle">EventSource</text>
+        </g>
+        <g>
+          <rect class="pbox" x="458" y="44" width="164" height="54" rx="8" />
+          <text class="pLabel" x="540" y="67" text-anchor="middle">Spring Boot</text>
+          <text class="pCaption" x="540" y="87" text-anchor="middle">SseEmitter</text>
+        </g>
+
+        <path class="lifeline" d="M180 98 V340" />
+        <path class="lifeline" d="M540 98 V340" />
+
+        <text class="phaseLabel" x="40" y="134">建连</text>
+        <text class="phaseLabel" x="40" y="208">推送</text>
+        <text class="phaseLabel" x="40" y="304">重连</text>
+
+        <path class="msg" d="M190 130 H530" marker-end="url(#sseHead)" />
+        <rect class="labelBg" x="253" y="118" width="214" height="24" rx="8" />
+        <text class="mLabel" x="360" y="135" text-anchor="middle">GET /sse/connect?token=JWT</text>
+
+        <path class="msg" data-type="return" d="M530 158 H190" marker-end="url(#sseHead)" />
+        <rect class="labelBg" x="274" y="146" width="172" height="24" rx="8" />
+        <text class="mLabel" x="360" y="163" text-anchor="middle">200 text/event-stream</text>
+
+        <path class="msg" data-focus="true" d="M530 200 H190" marker-end="url(#sseHeadFocus)" />
+        <rect class="labelBg" data-focus="true" x="303" y="188" width="114" height="24" rx="8" />
+        <text class="mLabel" data-focus="true" x="360" y="205" text-anchor="middle">data: 有新消息</text>
+
+        <path class="msg" d="M530 228 H190" marker-end="url(#sseHead)" />
+        <rect class="labelBg" x="297" y="216" width="126" height="24" rx="8" />
+        <text class="mLabel" x="360" y="233" text-anchor="middle">data: 订单已支付</text>
+
+        <path class="msg" data-type="return" d="M190 300 H530" marker-end="url(#sseHead)" />
+        <rect class="labelBg" x="312" y="288" width="96" height="24" rx="8" />
+        <text class="mLabel" x="360" y="305" text-anchor="middle">断线自动重连</text>
+
+        <rect class="chip" x="40" y="352" width="280" height="28" rx="14" />
+        <text class="chipText" x="180" y="370" text-anchor="middle">半双工：只建一条 HTTP 长连接</text>
+        <rect class="chip" x="340" y="352" width="300" height="28" rx="14" />
+        <text class="chipText" x="490" y="370" text-anchor="middle">断线由 EventSource 自动重连</text>
+      </svg>
+      <figcaption class="figureCaption">图 2 · SSE 的完整生命周期：建连 → 服务端持续推送 → 断线后浏览器自动重连。</figcaption>
+    </figure>
+
+    <h3 class="blockTitle">四个必须记住的特性</h3>
+    <ul>
+      <li><strong>半双工</strong>：这条连接只能服务端 → 客户端单向推。客户端要发消息，得另发一个普通 POST，反而能直接复用现有的目录、鉴权和错误码体系。</li>
+      <li><strong>断线自动重连</strong>：<code>EventSource</code> 浏览器内建重试，不需要自己写重连逻辑（对比 WebSocket 需要自己实现）。</li>
+      <li><strong>鉴权只能放 URL</strong>：<code>EventSource</code> 不支持自定义请求头，没法带 <code>Authorization: Bearer</code>，所以 token 只能拼在 query 上，由后端在建立连接时校验。这也是本项目 <code>SseController</code> 已经在用的做法。</li>
+      <li><strong>Nginx 必须关缓冲</strong>：反向代理默认会缓冲响应，导致事件被攒着一起发。需要 <code>proxy_buffering off</code> 与足够长的 <code>proxy_read_timeout</code>。本项目生产环境<strong>已经配好</strong>。</li>
+    </ul>
+
+    <div class="note">
+      报文格式很简单：一段事件形如 <code>event: notice</code> + 换行 + <code>data: {...}</code> + 空行，以空行作为一条事件的结束标志。
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section class="section" id="s3">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 03</span>
+      <h2 class="sectionTitle">方案二：WebSocket</h2>
+      <p class="sectionLead">先用 HTTP 完成握手，再把这条连接升级成双向帧通道。</p>
+    </div>
+
+    <p>WebSocket 的起点仍然是一个 HTTP 请求，只是带了 <code>Upgrade: websocket</code> 头；服务端同意后回复 <code>101 Switching Protocols</code>，这条 TCP 连接从此<strong>脱离 HTTP 语义</strong>，变成双方都能随时发送数据帧的通道。这正是它比 SSE 强的地方，也是它复杂的地方。</p>
+
+    <figure class="figure">
+      <svg class="diagram" viewBox="0 0 720 400" role="img" aria-label="WebSocket 握手与双向帧通信序列图">
+        <defs>
+          <marker id="wsHead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+          <marker id="wsHeadFocus" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path class="head" data-focus="true" d="M1 1 L7 4 L1 7 Z" />
+          </marker>
+        </defs>
+
+        <g>
+          <rect class="pbox" x="120" y="44" width="120" height="54" rx="8" />
+          <text class="pLabel" x="180" y="67" text-anchor="middle">浏览器</text>
+          <text class="pCaption" x="180" y="87" text-anchor="middle">WebSocket API</text>
+        </g>
+        <g>
+          <rect class="pbox" x="458" y="44" width="164" height="54" rx="8" />
+          <text class="pLabel" x="540" y="67" text-anchor="middle">Spring Boot</text>
+          <text class="pCaption" x="540" y="87" text-anchor="middle">/ws + STOMP</text>
+        </g>
+
+        <path class="lifeline" d="M180 98 V340" />
+        <path class="lifeline" d="M540 98 V340" />
+
+        <text class="phaseLabel" x="40" y="134">握手</text>
+        <text class="phaseLabel" x="40" y="208">帧通道</text>
+
+        <path class="msg" d="M190 130 H530" marker-end="url(#wsHead)" />
+        <rect class="labelBg" x="285" y="118" width="150" height="24" rx="8" />
+        <text class="mLabel" x="360" y="135" text-anchor="middle">GET /ws + Upgrade</text>
+
+        <path class="msg" data-type="return" d="M530 158 H190" marker-end="url(#wsHead)" />
+        <rect class="labelBg" x="267" y="146" width="186" height="24" rx="8" />
+        <text class="mLabel" x="360" y="163" text-anchor="middle">101 Switching Protocols</text>
+
+        <path class="msg" d="M190 200 H530" marker-end="url(#wsHead)" />
+        <rect class="labelBg" x="306" y="188" width="108" height="24" rx="8" />
+        <text class="mLabel" x="360" y="205" text-anchor="middle">帧：用户发消息</text>
+
+        <path class="msg" d="M530 228 H190" marker-end="url(#wsHead)" />
+        <rect class="labelBg" x="312" y="216" width="96" height="24" rx="8" />
+        <text class="mLabel" x="360" y="233" text-anchor="middle">帧：商家回复</text>
+
+        <path class="msg" data-focus="true" d="M530 256 H190" marker-end="url(#wsHeadFocus)" />
+        <rect class="labelBg" data-focus="true" x="294" y="244" width="132" height="24" rx="8" />
+        <text class="mLabel" data-focus="true" x="360" y="261" text-anchor="middle">帧：服务端主动推送</text>
+
+        <rect class="chip" x="40" y="352" width="300" height="28" rx="14" />
+        <text class="chipText" x="190" y="370" text-anchor="middle">握手用 HTTP，之后是二进制帧</text>
+        <rect class="chip" x="356" y="352" width="324" height="28" rx="14" />
+        <text class="chipText" x="518" y="370" text-anchor="middle">心跳与断线重连要自己实现</text>
+      </svg>
+      <figcaption class="figureCaption">图 3 · WebSocket 的两段式：先 HTTP 握手升级，再在帧通道上双向收发。</figcaption>
+    </figure>
+
+    <h3 class="blockTitle">带来能力，也带来四项额外工作</h3>
+    <ul>
+      <li><strong>心跳保活</strong>：链路上任何一环（运营商、Nginx、防火墙）都可能悄悄掐掉空闲连接，必须自己实现 <code>ping</code> / <code>pong</code> 定时探测。</li>
+      <li><strong>断线重连</strong>：浏览器 API 不会自动重连，要自己写重连与退避策略，还要考虑断线期间漏掉的消息如何补偿。</li>
+      <li><strong>鉴权更难</strong>：浏览器原生 WebSocket API 同样不能设置请求头，需要在 STOMP 的 <code>CONNECT</code> 帧里带 token，并用 <code>ChannelInterceptor</code> 校验，或退化成 URL 带 token。</li>
+      <li><strong>新增依赖与运维</strong>：需要引入 <code>spring-boot-starter-websocket</code>（本项目目前<strong>完全没有</strong> WebSocket 依赖），并在 Nginx 上透传 <code>Upgrade</code> / <code>Connection</code> 头。项目也不存在任何 WebSocket 配置类，等于从零搭。</li>
+    </ul>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section class="section" id="s4">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 04</span>
+      <h2 class="sectionTitle">三方案横向对比</h2>
+      <p class="sectionLead">同样的评估维度下，看三条路的取舍。</p>
+    </div>
+
+    <div class="comparisonGrid">
+      <article class="compareCard">
+        <div class="badgeRow"><span class="badge">过渡方案</span></div>
+        <div class="cardTitle">
+          <h3 class="optionName">短轮询</h3>
+          <p class="optionMeta">Short polling · 前端定时器拉取</p>
+        </div>
+        <div class="metricList">
+          <div class="metricRow"><span class="metricLabel">实时性</span><span class="metricValue">5~30s</span></div>
+          <div class="metricRow"><span class="metricLabel">小机开销（估）</span><span class="metricValue">低</span></div>
+          <div class="metricRow"><span class="metricLabel">新增依赖</span><span class="metricValue">无</span></div>
+          <div class="metricRow"><span class="metricLabel">鉴权做法</span><span class="metricValue">Bearer 头</span></div>
+          <div class="metricRow"><span class="metricLabel">落地工作量</span><span class="metricValue">小</span></div>
+        </div>
+        <div class="tagList"><span class="tag">改动最小</span><span class="tag">实时性差</span></div>
+      </article>
+
+      <article class="compareCard">
+        <div class="badgeRow"><span class="badge" data-tone="brand">推荐</span></div>
+        <div class="cardTitle">
+          <h3 class="optionName">SSE 长连接</h3>
+          <p class="optionMeta">Server-Sent Events · 半双工推送</p>
+        </div>
+        <div class="metricList">
+          <div class="metricRow"><span class="metricLabel">实时性</span><span class="metricValue" data-tone="brand">秒级</span></div>
+          <div class="metricRow"><span class="metricLabel">小机开销（估）</span><span class="metricValue">较低</span></div>
+          <div class="metricRow"><span class="metricLabel">新增依赖</span><span class="metricValue">无</span></div>
+          <div class="metricRow"><span class="metricLabel">鉴权做法</span><span class="metricValue">URL 带 token</span></div>
+          <div class="metricRow"><span class="metricLabel">落地工作量</span><span class="metricValue">中</span></div>
+        </div>
+        <div class="tagList"><span class="tag" data-tone="brand">复用现成骨架</span><span class="tag">单向推送</span></div>
+      </article>
+
+      <article class="compareCard">
+        <div class="badgeRow"><span class="badge">一步到位</span></div>
+        <div class="cardTitle">
+          <h3 class="optionName">WebSocket</h3>
+          <p class="optionMeta">全双工帧通道 · 需新增依赖</p>
+        </div>
+        <div class="metricList">
+          <div class="metricRow"><span class="metricLabel">实时性</span><span class="metricValue">秒级</span></div>
+          <div class="metricRow"><span class="metricLabel">小机开销（估）</span><span class="metricValue">较高</span></div>
+          <div class="metricRow"><span class="metricLabel">新增依赖</span><span class="metricValue">需新增 starter</span></div>
+          <div class="metricRow"><span class="metricLabel">鉴权做法</span><span class="metricValue">CONNECT 拦截</span></div>
+          <div class="metricRow"><span class="metricLabel">落地工作量</span><span class="metricValue">大</span></div>
+        </div>
+        <div class="tagList"><span class="tag">能力最全</span><span class="tag">成本最高</span></div>
+      </article>
+    </div>
+
+    <div class="note">
+      "小机开销"为量级判断，不是压测实测值。如需硬数据，可用本地 JMeter（<code>C:\Tools\apache-jmeter-5.6.3</code>）做一组 1000 并发长连接的对照压测。
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section class="section" id="s5">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 05</span>
+      <h2 class="sectionTitle">三个关键判断</h2>
+      <p class="sectionLead">选型要看的不是"哪个技术更强"，而是"哪个更匹配这个场景与这台机器"。</p>
+    </div>
+
+    <h3 class="blockTitle">判断一：半双工对"客服对话"不是硬伤</h3>
+    <p>SSE 只能服务端单向推，客户端发消息要另发 POST。放进客服场景就不构成问题：对话节奏是"一问一答"，不是毫秒级双向同步——<strong>收消息必须实时</strong>（这正是当前痛点），而<strong>发消息</strong>用一次普通 POST 反而顺带获得了 HTTP 的鉴权、日志、错误码能力，比在 WS 帧里自己约定协议更省事。</p>
+
+    <h3 class="blockTitle">判断二：2 核 2G 单机上，两者都能跑，差在维护面</h3>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>通道</th>
+            <th>每连接主要成本</th>
+            <th>100 并发在线的量级</th>
+            <th>实际压力</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SSE</td>
+            <td>一个 <code>SseEmitter</code> + 异步 Servlet 请求对象 + socket 缓冲；异步模式<strong>不占 Tomcat 工作线程</strong></td>
+            <td>堆上约几 MB</td>
+            <td>后端堆为 <code>-Xmx512m</code>，占比可忽略；真正上限是 <code>maxConnections</code>（Tomcat 默认 8192）</td>
+          </tr>
+          <tr>
+            <td>WebSocket</td>
+            <td><code>WebSocketSession</code> + STOMP 帧缓冲 + 心跳任务，通常还需要额外的调度/心跳线程</td>
+            <td>略高于 SSE</td>
+            <td>仍能承载，但需留意 2G 机器的 GC 压力与心跳线程开销</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:16px">真正的差别不在"能不能跑"，而在<strong>出问题时要同时排查几个地方</strong>：SSE 是 HTTP 语义的延续，能用 Nginx 日志和浏览器 Network 面板直接看；WebSocket 一旦连不上，要同时怀疑握手、<code>Upgrade</code> 透传、STOMP 拦截器、心跳四件事。</p>
+
+    <h3 class="blockTitle">判断三：学习收益各有侧重</h3>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>走 SSE 会掌握</th>
+            <th>走 WebSocket 会掌握</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>HTTP 长连接与 Servlet 异步模型</td><td>HTTP <code>Upgrade</code> 协议切换（101）</td></tr>
+          <tr><td><code>SseEmitter</code> 生命周期：<code>onCompletion</code>/<code>onTimeout</code>/<code>onError</code></td><td>帧协议与文本流的区别、全双工通信</td></tr>
+          <tr><td><code>text/event-stream</code> 报文格式与 <code>EventSource</code> API</td><td>心跳保活 <code>ping</code>/<code>pong</code> 与超时判定</td></tr>
+          <tr><td><strong>为什么鉴权要放 URL</strong>（<code>EventSource</code> 不能设 Header）</td><td>STOMP 子协议与 <code>ChannelInterceptor</code> 做 JWT 鉴权</td></tr>
+          <tr><td>Nginx 反代长连接：<code>proxy_buffering off</code></td><td>Nginx <code>Upgrade</code> 头透传配置</td></tr>
+          <tr><td>"按 userId 定向推送"的连接注册表设计</td><td>离线消息补偿、消息可靠投递</td></tr>
+          <tr><td>单实例内存态的局限 → 何时该上 Redis Pub/Sub</td><td>集群会话共享与消息路由</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      建议路径：先用 SSE 落地，把实时链路真正跑通（目前前端 <code>setupSse()</code> 无人调用、整条链路是死代码，先接通本身就是一次很好的学习）；理解"推送"的本质之后，再把通道替换成 WebSocket 做进阶，此时是"知道为什么换"而不是"照教程抄一遍"。
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section class="section" id="s6">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 06</span>
+      <h2 class="sectionTitle">可复用的现有资产</h2>
+      <p class="sectionLead">这是"选 SSE"最实在的理由：骨架已经埋好了。</p>
+    </div>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>已有资产</th>
+            <th>位置</th>
+            <th>能省掉的工作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SSE 后端骨架</td>
+            <td class="path">controller/SseController.java</td>
+            <td>连接注册、1 小时超时、定时心跳、断连清理均已实现；<strong>缺"按 userId 定向推送"</strong></td>
+          </tr>
+          <tr>
+            <td>前端 SSE 封装</td>
+            <td class="path">src/composables/sse/useSse.ts</td>
+            <td>单例 <code>connect()</code> / <code>on(event)</code>、浏览器自动重连已封装</td>
+          </tr>
+          <tr>
+            <td>Nginx 长连接配置</td>
+            <td class="path">生产 nginx.conf</td>
+            <td><code>proxy_buffering off</code> + <code>proxy_read_timeout 3600s</code> 已配好，运维零改动</td>
+          </tr>
+          <tr>
+            <td>聊天 UI 骨架</td>
+            <td class="path">views/shop/customerService/index.vue</td>
+            <td>气泡 / 输入区 / 打字动画可抽成公共组件</td>
+          </tr>
+          <tr>
+            <td>全站浮球入口</td>
+            <td class="path">components/CustomerServiceFab/index.vue</td>
+            <td>浮球 + 面板 + 移动端跳转交互已完整，改为统一客服入口即可</td>
+          </tr>
+          <tr>
+            <td>鉴权与归属校验</td>
+            <td class="path">config/CurrentUserIdArgumentResolver.java</td>
+            <td><code>@CurrentUserId</code> 直接取登录用户 id；商家端归属校验参照 <code>MerchantMessageServiceImpl.replyToMessage</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      两个必须先知道的既存缺口：① 前端 <code>setupSse()</code> 全仓无调用点，<code>useNotice.ts</code> 也无组件使用，SSE 目前是死代码；② 后端从未推送过 <code>notice</code> 事件（只广播 <code>online-count</code>），而前端已在订阅它——补上这个生产者，站内通知与客服会话就能共用一条实时通道。
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section class="section" id="s7">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 07</span>
+      <h2 class="sectionTitle">推荐落地路径（SSE 版）</h2>
+      <p class="sectionLead">全部是增量改动，不推翻现有留言功能。</p>
+    </div>
+
+    <h3 class="blockTitle">数据模型（新建两张表，旧表只读保留）</h3>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr><th>表</th><th>关键字段</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="path">chat_conversation</td>
+            <td>user_id、merchant_id、product_id、last_message、last_time、user_unread、merchant_unread、status</td>
+            <td>一条会话 = 用户与某商家（可绑定商品）的对话，冗余最后一条消息与双方未读数，避免会话列表 N+1 查询</td>
+          </tr>
+          <tr>
+            <td class="path">chat_message</td>
+            <td>conversation_id、sender_id、sender_role、content、content_type、is_read、create_time</td>
+            <td>消息明细，按 <code>conversation_id + id</code> 游标分页拉取历史</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:16px">迁移脚本按 <span class="path">src/main/resources/db/V&lt;yyyyMMdd&gt;__create_chat_conversation.sql</span> 规范编写（项目无 Flyway，需人工执行），并同步补充 <span class="path">sql/eshops.sql</span> 全量脚本。</p>
+
+    <div class="checkList">
+      <div class="checkGroup">
+        <h4>后端（Desktop\e-shop）</h4>
+        <ol>
+          <li>建 <code>chat_conversation</code> / <code>chat_message</code> 表 + 增量脚本 + 同步全量脚本</li>
+          <li>新增 <code>ChatController</code> / <code>ChatService</code>：会话列表、历史消息游标分页、发送、标记已读、未读总数</li>
+          <li>改造 <span class="path">controller/SseController.java</span>：把按连接的 Map 扩成 <code>Map&lt;Long, Set&lt;SseEmitter&gt;&gt;</code>，新增 <code>sendToUser(userId, event, data)</code>；顺手补上前端已在订阅的 <code>notice</code> 事件生产者</li>
+          <li>新推送/轮询路径登记进 <span class="path">config/TraceFilter.java</span> 的 <code>isNoiseEndpoint</code> 噪声白名单，避免刷爆访问日志</li>
+          <li>商家端接口做归属校验（<code>/api/merchant/**</code> 无 URL 级角色控制，仅靠 <code>@CurrentUserId</code> 自证）</li>
+          <li>复用 <code>NoticeService.createAndPublish</code> 生成"收到新消息"的站内提醒，覆盖用户不在线的情况</li>
+        </ol>
+      </div>
+
+      <div class="checkGroup">
+        <h4>前端（Eshop）</h4>
+        <ol>
+          <li>新增用户端会话页 <code>/shop/message</code>（左会话列表 + 右聊天窗，桌面双栏 / 移动单栏）</li>
+          <li>新增商家端工作台 <code>/merchant/conversations</code>，与现有"用户留言"页并存</li>
+          <li>给 <span class="path">src/composables/sse/useSse.ts</span> 接线（补 <code>setupSse()</code> 调用），新增 <code>useImMessages</code> 订阅会话消息事件</li>
+          <li>把 <span class="path">views/shop/customerService/index.vue</span> 的气泡与输入区抽成公共组件，AI 客服页与人工会话页共用</li>
+          <li><span class="path">components/CustomerServiceFab/index.vue</span> 升级为统一客服入口：AI 先答，用户点"转人工"后进入会话</li>
+        </ol>
+      </div>
+
+      <div class="checkGroup">
+        <h4>运维</h4>
+        <ol>
+          <li>Nginx 已具备 <code>proxy_buffering off</code> 与长超时，<strong>无需改动</strong></li>
+          <li>注意：内存态推送只支持单实例部署（当前即为单实例）；将来横向扩容需引入 Redis Pub/Sub 做广播</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section class="section" id="s8">
+    <div class="sectionHead">
+      <span class="sectionKicker">Section 08</span>
+      <h2 class="sectionTitle">待决策项</h2>
+      <p class="sectionLead">以下四项确认后即可进入实施。</p>
+    </div>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr><th>决策项</th><th>已定</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>实时通道</td><td>SSE（复用现有骨架）</td><td>待最终确认</td></tr>
+          <tr><td>模块范围</td><td>AI 客服 + 人工会话统一入口</td><td>已确认</td></tr>
+          <tr><td>旧留言数据</td><td>新建会话表，<code>merchant_message</code> 只读保留</td><td>已确认</td></tr>
+          <tr><td>商家侧入口</td><td>新建 <code>/merchant/conversations</code> 工作台</td><td>已确认</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="footer">E-Shop 电商系统 · 客服会话实时推送方案选型 · 生成于 2026-09-29</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  var media = window.matchMedia('(prefers-color-scheme: dark)');
+
+  function apply(theme) {
+    if (theme === 'dark') {
+      root.setAttribute('data-doc-theme', 'dark');
+      btn.textContent = '切换浅色';
+    } else {
+      root.removeAttribute('data-doc-theme');
+      btn.textContent = '切换深色';
+    }
+  }
+
+  apply(media.matches ? 'dark' : 'light');
+  btn.addEventListener('click', function () {
+    apply(root.hasAttribute('data-doc-theme') ? 'light' : 'dark');
+  });
+})();
+</script>
+</body>
+</html>

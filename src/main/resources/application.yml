@@ -84,6 +84,16 @@ management:
       enabled: ${elasticsearch.enabled:false}
 
 
+# ========== 模拟物流 ==========
+# 发货后自动生成轨迹并推进：已揽收→运输中→派送中→已签收（自动确认收货）。
+# 各阶段延迟可配（演示用分钟级；改为 0 则秒级推进）。
+simulation:
+  logistics:
+    enable: true
+    pickup-minutes: 1        # 已揽收 → 运输中 延迟（分钟）
+    transit-minutes: 1       # 运输中 → 派送中 延迟（分钟）
+    delivering-minutes: 1    # 派送中 → 已签收 延迟（分钟），随后自动确认收货
+
 # 新人礼包
 shop:
   newbie:
